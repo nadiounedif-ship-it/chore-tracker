@@ -23,7 +23,12 @@ app.use(cors({
     config.frontendUrl
   ].filter(Boolean),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Explicitly handle all preflight OPTIONS requests
+app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
