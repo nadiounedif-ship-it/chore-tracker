@@ -198,6 +198,11 @@ export const BossDashboard: React.FC = () => {
     mutationFn: ({ id, status }: { id: string; status: 'APPROVED' | 'PURCHASED' | 'REJECTED' }) => api.shopping.updateStatus(id, status),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bossShopping'] }),
   });
+  const removeWorkerMutation = useMutation({
+    mutationFn: (workerId: string) => api.teams.removeWorker(workerId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['myTeam'] }),
+    onError: (error: any) => alert(error.message || 'Could not remove this worker from the team.'),
+  });
 
   // Calculate Metrics
   const activeMembersCount = teamData?.members?.filter((m) => m.status === 'ACTIVE').length || 0;
@@ -244,30 +249,7 @@ export const BossDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex border-b border-slate-200 overflow-x-auto gap-2 pb-px">
-        {[
-          { id: 'overview', label: '📊 Overview' },
-          { id: 'chores', label: `🧹 Chores (${choresData?.length || 0})` },
-          { id: 'scanner', label: '📱 Clock In/Out Scanner' },
-          { id: 'payouts', label: `💰 Piggy Bank & Payouts (${formatCurrency(totalUnpaid)})` },
-          { id: 'workers', label: `👥 Workers (${activeMembersCount})` },
-          { id: 'rates', label: '⚙️ Salary Brackets' },
-          { id: 'shopping', label: '🛒 To Buy' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2.5 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === tab.id
-                ? 'border-b-2 border-purple-600 text-purple-600 bg-purple-50/50'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {activeTab !== 'overview' && <button onClick={() => setActiveTab('overview')} className="text-sm font-bold text-amber-900 hover:text-amber-950">← Home</button>}
 
       {/* TAB: OVERVIEW */}
       {activeTab === 'overview' && (
@@ -314,6 +296,19 @@ export const BossDashboard: React.FC = () => {
               <p className="text-xs text-slate-400 mt-1">Requests & proofs</p>
             </div>
           </div>
+
+          <section aria-label="Boss dashboard shortcuts" className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {[
+              { id: 'chores', icon: '🧹', title: 'Chores & requests', detail: `${pendingRequests.length} new requests · ${choresData?.length || 0} chores` },
+              { id: 'scanner', icon: '📱', title: 'Clock in / out', detail: 'Scan a worker badge' },
+              { id: 'payouts', icon: '🐷', title: 'Piggy bank & payouts', detail: `${formatCurrency(totalUnpaid)} waiting to be paid` },
+              { id: 'workers', icon: '👨‍👩‍👧‍👦', title: 'Workers & invitations', detail: `${activeMembersCount} active team members` },
+              { id: 'rates', icon: '🌱', title: 'Salary brackets', detail: 'Review age-based rates' },
+              { id: 'shopping', icon: '🛒', title: 'To Buy list', detail: 'Review family supply requests' },
+            ].map((tile) => <button key={tile.id} onClick={() => setActiveTab(tile.id as any)} className="min-h-32 sm:min-h-36 rounded-2xl sm:rounded-3xl border border-orange-100 bg-white p-4 sm:p-6 text-left shadow-sm hover:-translate-y-0.5 hover:shadow-md transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600">
+              <span className="text-2xl sm:text-3xl" aria-hidden="true">{tile.icon}</span><span className="mt-3 block font-extrabold text-slate-900 text-sm sm:text-base">{tile.title}</span><span className="mt-1 block text-xs sm:text-sm text-slate-500">{tile.detail}</span>
+            </button>)}
+          </section>
 
           {/* Pending Reviews Banner if any */}
           {awaitingReviewSessions.length > 0 && (
@@ -372,6 +367,7 @@ export const BossDashboard: React.FC = () => {
       {/* TAB: CHORES & APPROVALS */}
       {activeTab === 'chores' && (
         <div className="space-y-6">
+          {pendingRequests.length > 0 && <section className="order-first bg-amber-50 rounded-2xl border border-amber-200 p-4 sm:p-5 space-y-3"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-base sm:text-lg text-amber-950">Chore requests</h3><span className="rounded-full bg-white px-3 py-1 text-xs font-extrabold text-amber-900">{pendingRequests.length} waiting</span></div>{pendingRequests.map((request: any) => <div key={request.id} id={`reference-chore-${request.choreId}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-amber-200 pt-3"><div className="min-w-0"><div className="font-bold break-words">{request.worker?.fullName || 'Worker'} asked to do {request.choreTitle}</div><div className="text-xs text-slate-500">Requested {new Date(request.requestedAt).toLocaleDateString()}</div></div><div className="flex gap-2 shrink-0"><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'APPROVE' })} className="rounded-lg bg-emerald-100 text-emerald-900 px-3 py-2 text-xs font-bold">Approve</button><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'REJECT' })} className="rounded-lg bg-white text-rose-800 px-3 py-2 text-xs font-bold">Decline</button></div></div>)}</section>}
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-xl font-bold text-slate-900">Team Chores</h2>
@@ -428,8 +424,6 @@ export const BossDashboard: React.FC = () => {
               </div>
             ))}
           </div>
-
-          {pendingRequests.length > 0 && <section className="bg-white rounded-2xl border border-amber-100 p-5 space-y-3"><h3 className="font-bold text-lg">Chore requests ({pendingRequests.length})</h3>{pendingRequests.map((request: any) => <div key={request.id} id={`reference-chore-${request.choreId}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t pt-3"><div><div className="font-bold">{request.worker?.fullName || 'Worker'} asked to do {request.choreTitle}</div><div className="text-xs text-slate-500">Requested {new Date(request.requestedAt).toLocaleDateString()}</div></div><div className="flex gap-2"><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'APPROVE' })} className="rounded-lg bg-emerald-50 text-emerald-800 px-3 py-2 text-xs font-bold">Approve</button><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'REJECT' })} className="rounded-lg bg-rose-50 text-rose-800 px-3 py-2 text-xs font-bold">Decline</button></div></div>)}</section>}
 
           {awaitingReviewSessions.length > 0 && <section className="bg-white rounded-2xl border border-sky-100 p-5 space-y-4"><h3 className="font-bold text-lg">Finished chores to review ({awaitingReviewSessions.length})</h3>{awaitingReviewSessions.map((session: any) => <article key={session.id} id={`reference-session-${session.id}`} className="border-t pt-4 space-y-3"><div><div className="font-bold">{session.workerName} · {session.choreTitle}</div><div className="text-xs text-slate-500">Work time: {Math.floor((session.durationSeconds || 0) / 60)} minutes · submitted {new Date(session.clockOutAt || session.clockInAt).toLocaleString()}</div></div><div className="flex flex-wrap gap-3">{session.beforePictureUrl && <a href={session.beforePictureUrl} target="_blank" rel="noreferrer"><img src={session.beforePictureUrl} alt="Before" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">Before</span></a>}{session.afterPictureUrl && <a href={session.afterPictureUrl} target="_blank" rel="noreferrer"><img src={session.afterPictureUrl} alt="After" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">After</span></a>}</div><div className="flex gap-2"><button disabled={reviewSessionMutation.isPending} onClick={() => reviewSessionMutation.mutate({ id: session.id, approved: true })} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-bold">Approve and credit</button><button disabled={reviewSessionMutation.isPending} onClick={() => { const reason = window.prompt('What should the worker fix before resubmitting?'); if (reason?.trim()) reviewSessionMutation.mutate({ id: session.id, approved: false, reason: reason.trim() }); }} className="rounded-xl bg-rose-50 text-rose-800 px-4 py-2 text-sm font-bold">Ask for changes</button></div></article>)}</section>}
 
@@ -601,13 +595,13 @@ export const BossDashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {teamData?.members?.map((m: any) => (
-              <div key={m.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex items-center justify-between">
+              <div key={m.id} className="min-w-0 bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-800 font-extrabold flex items-center justify-center text-base">
-                    {m.worker.fullName.charAt(0)}
+                  <div className="w-12 h-12 shrink-0 rounded-full bg-slate-100 text-slate-800 font-extrabold flex items-center justify-center text-base overflow-hidden">
+                    {m.worker.avatarUrl ? <img src={m.worker.avatarUrl} alt="" className="w-full h-full object-cover" /> : m.worker.fullName.charAt(0)}
                   </div>
-                  <div>
-                    <div className="font-bold text-sm text-slate-900">{m.worker.fullName}</div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm text-slate-900 break-words">{m.worker.fullName}</div>
                     <div className="text-xs text-slate-400">@{m.worker.username}</div>
                     <div className="text-[11px] text-purple-600 font-medium mt-0.5">
                       Badge: {m.worker.nfcBadge?.badgeUid || 'Assigned'}
@@ -615,8 +609,9 @@ export const BossDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-2"><span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">{m.status}</span>
+                <div className="flex flex-row flex-wrap sm:flex-col items-center sm:items-end gap-2"><span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">{m.status}</span>
                   {m.worker.nfcBadge && <button onClick={async () => { const candidates = teamData?.members?.filter((candidate: any) => candidate.status === 'ACTIVE' && candidate.worker.id !== m.worker.id && !candidate.worker.nfcBadge) || []; if (!candidates.length) { alert('There is no active team member without an existing badge.'); return; } const names = candidates.map((candidate: any) => `${candidate.worker.fullName} (@${candidate.worker.username})`).join(', '); const username = window.prompt(`Transfer badge ${m.worker.nfcBadge.badgeUid} to one of these active team members: ${names}`, candidates[0]?.worker?.username || ''); const target = candidates.find((candidate: any) => candidate.worker?.username?.toLowerCase() === username?.trim().replace(/^@/, '').toLowerCase()); if (!target?.worker) { if (username) alert('Choose a username from the listed team members.'); return; } if (!window.confirm(`Transfer this badge from ${m.worker.fullName} to ${target.worker.fullName}? This change will be recorded in the team activity log.`)) return; try { await api.sessions.reassignBadge(m.worker.nfcBadge.badgeUid, target.worker.id); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message || 'Badge transfer failed.'); } }} className="text-[10px] font-bold rounded-lg bg-amber-50 text-amber-900 px-2 py-1">Transfer badge</button>}
+                  {m.status === 'ACTIVE' && <button type="button" disabled={removeWorkerMutation.isPending} onClick={() => { if (window.confirm(`Remove ${m.worker.fullName} from ${teamData?.name || 'this team'}? They will lose access to this team's active chores. Their account, other team memberships, earnings, and completed history will be kept.`)) removeWorkerMutation.mutate(m.worker.id); }} className="text-[10px] font-bold rounded-lg bg-rose-50 text-rose-800 px-2 py-1 disabled:opacity-50">Remove from team</button>}
                 </div>
               </div>
             ))}

@@ -206,6 +206,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ name, targetAmount, pictureUrl }),
       }),
+    update: (id: string, name: string, targetAmount: number, pictureUrl?: string) =>
+      request<{ message: string; goal: any }>(`/savings/${id}`, { method: 'PUT', body: JSON.stringify({ name, targetAmount, pictureUrl }) }),
     delete: (id: string) => request<{ message: string }>(`/savings/${id}`, { method: 'DELETE' }),
   },
 

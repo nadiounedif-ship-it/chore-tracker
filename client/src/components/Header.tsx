@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Bell, LogOut, CheckCheck, Users, Shield, Sparkles } from 'lucide-react';
+import { Bell, LogOut, CheckCheck, Users, Shield, Sparkles, Menu, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export const Header: React.FC = () => {
@@ -9,6 +9,7 @@ export const Header: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [online, setOnline] = useState(navigator.onLine);
+  const [showNavigation, setShowNavigation] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -63,17 +64,27 @@ export const Header: React.FC = () => {
     }
   };
 
+  const dashboardLinks = role === 'BOSS'
+    ? [{ id: 'overview', label: 'Home' }, { id: 'chores', label: 'Chores & requests' }, { id: 'scanner', label: 'Clock in / out' }, { id: 'payouts', label: 'Piggy bank & payouts' }, { id: 'workers', label: 'Workers & invitations' }, { id: 'rates', label: 'Salary brackets' }, { id: 'shopping', label: 'To Buy list' }]
+    : [{ id: 'home', label: 'Home' }, { id: 'piggybank', label: 'Piggy bank' }, { id: 'available', label: 'Available chores' }, { id: 'mychores', label: 'My chores' }, { id: 'qr', label: 'NFC & QR badge' }, { id: 'goals', label: 'Savings goals' }, { id: 'shopping', label: 'Request supplies' }];
+
+  const navigateDashboard = (tab: string) => {
+    setActivePage('dashboard');
+    setDashboardTab(tab);
+    setShowNavigation(false);
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 shadow-xs">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4">
         {/* Brand Logo & Name */}
-        <div className="flex items-center gap-3">
+        <button type="button" onClick={() => navigateDashboard(role === 'BOSS' ? 'overview' : 'home')} aria-label="Go to home" className="flex items-center gap-2 sm:gap-3 text-left min-w-0">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center text-white shadow-md shadow-brand-500/20">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-lg text-slate-900 tracking-tight">Chore Manager</span>
+              <span className="font-bold text-base sm:text-lg text-slate-900 tracking-tight">Chore Manager</span>
               <span
                 className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                   role === 'BOSS'
@@ -88,11 +99,11 @@ export const Header: React.FC = () => {
               <p className="text-xs text-slate-500 font-medium">Team: {user.ownedTeam.name}</p>
             )}
           </div>
-        </div>
+        </button>
 
         {/* Worker Team Selector (Visible when Worker has teams) */}
         {role === 'WORKER' && user?.teamMemberships && user.teamMemberships.length > 0 && (
-          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="hidden sm:flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200 max-w-64">
             <Users className="w-4 h-4 text-slate-500 ml-2" />
             <select
               value={activeTeamId}
@@ -111,6 +122,16 @@ export const Header: React.FC = () => {
 
         {/* User Actions & Notifications */}
         <div className="flex items-center gap-2 relative">
+          <button type="button" onClick={() => setShowNavigation((open) => !open)} aria-label={showNavigation ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={showNavigation} className="p-2 rounded-xl text-slate-700 hover:bg-amber-50" title="Navigation">
+            {showNavigation ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+          {showNavigation && <nav aria-label="Main navigation" className="absolute right-0 top-12 w-64 max-h-[75vh] overflow-y-auto bg-white rounded-2xl shadow-xl border border-orange-100 p-2 z-50">
+            <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Menu</div>
+            {role === 'WORKER' && user?.teamMemberships && user.teamMemberships.length > 0 && <label className="block px-3 pb-2 sm:hidden"><span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-400">Current team</span><select aria-label="Choose current team" value={activeTeamId} onChange={(event) => { setActiveTeamId(event.target.value); setShowNavigation(false); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"><option value="ALL">All Teams</option>{user.teamMemberships.map((membership) => <option key={membership.teamId} value={membership.teamId}>{membership.team?.name || 'Team'}</option>)}</select></label>}
+            {dashboardLinks.map((link) => <button key={link.id} onClick={() => navigateDashboard(link.id)} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">{link.label}</button>)}
+            {role === 'WORKER' && <button onClick={() => { setActivePage('teams'); setShowNavigation(false); }} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">My Teams</button>}
+            <button onClick={() => { setActivePage('profile'); setShowNavigation(false); }} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">Profile & settings</button>
+          </nav>}
           {!online && <span className="hidden sm:inline text-xs font-bold rounded-full bg-amber-100 text-amber-900 px-3 py-1">Offline · some features need internet</span>}
           {online && installPrompt && <button onClick={async () => { await installPrompt.prompt(); setInstallPrompt(null); }} className="hidden sm:inline-flex text-xs font-bold rounded-xl bg-amber-100 text-amber-900 px-3 py-2">Install app</button>}
           {/* Notification Button */}
@@ -169,7 +190,7 @@ export const Header: React.FC = () => {
           )}
 
           {/* Profile Name & Avatar */}
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+          <div className="flex items-center gap-2 sm:pl-2 sm:border-l border-slate-200">
             <button onClick={() => setActivePage('profile')} className={`w-8 h-8 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center font-bold text-amber-900 text-xs ${activePage === 'profile' ? 'ring-2 ring-amber-500' : ''}`} title="Your profile">
               {user?.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : user?.fullName?.charAt(0) || user?.username?.charAt(0) || 'U'}
             </button>

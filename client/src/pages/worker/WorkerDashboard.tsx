@@ -16,6 +16,8 @@ import {
   Plus,
   ArrowRight,
   TrendingUp,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -24,10 +26,11 @@ export const WorkerDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   // Navigation Tab
-  const [activeTab, setActiveTab] = useState<'piggybank' | 'available' | 'mychores' | 'qr' | 'goals' | 'shopping'>('piggybank');
+  const [activeTab, setActiveTab] = useState<'home' | 'piggybank' | 'available' | 'mychores' | 'qr' | 'goals' | 'shopping'>('home');
 
   // Modals & Timers
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<any>(null);
   const [showShoppingModal, setShowShoppingModal] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [beforeProofUrl, setBeforeProofUrl] = useState('');
@@ -58,6 +61,8 @@ export const WorkerDashboard: React.FC = () => {
     queryKey: ['myAssignments', activeTeamId],
     queryFn: () => api.chores.getMyAssignments(undefined, activeTeamId === 'ALL' ? undefined : activeTeamId),
   });
+  const completedAssignments = myAssignments?.filter((assignment) => assignment.status === 'COMPLETED') || [];
+  const activeAssignments = myAssignments?.filter((assignment) => assignment.status !== 'COMPLETED') || [];
 
   const { data: qrData } = useQuery({
     queryKey: ['qrBadge'],
@@ -78,7 +83,7 @@ export const WorkerDashboard: React.FC = () => {
   const { data: shoppingRequests } = useQuery({ queryKey: ['shoppingRequests', activeTeamId], queryFn: () => api.shopping.list(activeTeamId === 'ALL' ? undefined : activeTeamId) });
 
   useEffect(() => {
-    if (dashboardTab && ['piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping'].includes(dashboardTab)) {
+    if (dashboardTab && ['home', 'piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any); setDashboardTab(null);
     }
   }, [dashboardTab, setDashboardTab]);
@@ -264,28 +269,20 @@ export const WorkerDashboard: React.FC = () => {
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex border-b border-slate-200 overflow-x-auto gap-2 pb-px">
+      {activeTab !== 'home' && <button onClick={() => setActiveTab('home')} className="text-sm font-bold text-emerald-800 hover:text-emerald-950">← Home</button>}
+
+      {activeTab === 'home' && <section aria-label="Worker dashboard shortcuts" className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {[
-          { id: 'piggybank', label: '💰 Piggy Bank & Teams' },
-          { id: 'available', label: `🔍 Available Chores (${availableChores?.length || 0})` },
-          { id: 'mychores', label: `📋 My Chores (${myAssignments?.length || 0})` },
-          { id: 'qr', label: '📱 NFC Tag & QR Badge' },
-          { id: 'goals', label: `🎯 Savings Goals (${savingsGoals?.length || 0})` },
-          { id: 'shopping', label: '🛒 Request Supplies' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2.5 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === tab.id
-                ? 'border-b-2 border-emerald-600 text-emerald-700 bg-emerald-50/50'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+          { id: 'piggybank', icon: '🐷', title: 'Piggy bank', detail: 'See your earnings and team balances' },
+          { id: 'available', icon: '✨', title: 'Available chores', detail: `${availableChores?.length || 0} chores to choose from` },
+          { id: 'mychores', icon: '📋', title: 'My chores', detail: `${myAssignments?.filter((a) => a.status !== 'COMPLETED').length || 0} in progress or waiting` },
+          { id: 'goals', icon: '🎯', title: 'Savings goals', detail: 'Track what you are saving for' },
+          { id: 'qr', icon: '📱', title: 'NFC & QR badge', detail: 'Open your attendance badge' },
+          { id: 'shopping', icon: '🛒', title: 'Request supplies', detail: 'Ask your Boss for supplies' },
+        ].map((tile) => <button key={tile.id} onClick={() => setActiveTab(tile.id as any)} className="min-h-32 sm:min-h-36 rounded-2xl sm:rounded-3xl border border-orange-100 bg-white p-4 sm:p-6 text-left shadow-sm hover:-translate-y-0.5 hover:shadow-md transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+          <span className="text-2xl sm:text-3xl" aria-hidden="true">{tile.icon}</span><span className="mt-3 block font-extrabold text-slate-900 text-sm sm:text-base">{tile.title}</span><span className="mt-1 block text-xs sm:text-sm text-slate-500">{tile.detail}</span>
+        </button>)}
+      </section>}
 
       {/* TAB: PIGGY BANK & TEAM BREAKDOWN */}
       {activeTab === 'piggybank' && (
@@ -423,7 +420,7 @@ export const WorkerDashboard: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {myAssignments?.map((a) => (
+            {activeAssignments.map((a) => (
               <div key={a.id} id={`reference-chore-${a.choreId}`} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -454,6 +451,14 @@ export const WorkerDashboard: React.FC = () => {
               </div>
             ))}
           </div>
+          {activeAssignments.length === 0 && <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">No active or waiting chores right now.</p>}
+          <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">A little history of the work you have finished.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
+            {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-chore-${assignment.choreId}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.chore?.title || 'Completed chore'}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div>
+              <p className="mt-1 text-xs text-slate-500">{assignment.chore?.team?.name || 'Team'}{assignment.completedAt ? ` · ${new Date(assignment.completedAt).toLocaleDateString()}` : ''}</p>
+            </article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Your completed chores will show up here.</p>}
+          </section>
         </div>
       )}
 
@@ -591,12 +596,16 @@ export const WorkerDashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {savingsGoals?.map((goal: any) => (
-              <div key={goal.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-3">
+                <div key={goal.id} className="min-w-0 bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-3">
                 <div className="flex justify-between items-start">
-                  <h3 className="font-bold text-slate-900 text-base">{goal.name}</h3>
+                  <h3 className="font-bold text-slate-900 text-base break-words">{goal.name}</h3>
                   <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg">
                     Target: {formatCurrency(goal.targetAmount)}
                   </span>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setEditingGoal(goal)} className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"><Edit2 className="h-3.5 w-3.5" /> Edit</button>
+                  <button type="button" onClick={async () => { if (!window.confirm(`Delete the savings goal “${goal.name}”?`)) return; try { await api.savings.delete(goal.id); await queryClient.invalidateQueries({ queryKey: ['savingsGoals'] }); } catch (err: any) { alert(err.message || 'Could not delete this goal.'); } }} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
                 </div>
 
                 {/* Progress Bar */}
@@ -635,11 +644,13 @@ export const WorkerDashboard: React.FC = () => {
       {photoError && <div className="fixed bottom-4 right-4 bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl shadow-lg text-sm">{photoError}<button onClick={() => setPhotoError('')} className="ml-3 font-bold">Dismiss</button></div>}
 
       {/* Goal Modal */}
-      {showGoalModal && (
-        <CreateGoalModal
-          onClose={() => setShowGoalModal(false)}
+      {(showGoalModal || editingGoal) && (
+        <GoalModal
+          initialGoal={editingGoal}
+          onClose={() => { setShowGoalModal(false); setEditingGoal(null); }}
           onSuccess={() => {
             setShowGoalModal(false);
+            setEditingGoal(null);
             queryClient.invalidateQueries({ queryKey: ['savingsGoals'] });
           }}
         />
@@ -649,18 +660,22 @@ export const WorkerDashboard: React.FC = () => {
 };
 
 // Sub-Modal: Create Savings Goal
-const CreateGoalModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
-  const [name, setName] = useState('');
-  const [targetAmount, setTargetAmount] = useState('100.00');
+const GoalModal: React.FC<{ initialGoal?: any; onClose: () => void; onSuccess: () => void }> = ({ initialGoal, onClose, onSuccess }) => {
+  const [name, setName] = useState(initialGoal?.name || '');
+  const [targetAmount, setTargetAmount] = useState(initialGoal?.targetAmount || '100.00');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.savings.create(name, parseFloat(targetAmount));
+      setError('');
+      if (initialGoal) await api.savings.update(initialGoal.id, name, parseFloat(targetAmount), initialGoal.pictureUrl || undefined);
+      else await api.savings.create(name, parseFloat(targetAmount));
       onSuccess();
-    } catch {
+    } catch (err: any) {
+      setError(err.message || 'Could not save this goal.');
       setSubmitting(false);
     }
   };
@@ -668,7 +683,8 @@ const CreateGoalModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-4">
-        <h3 className="font-extrabold text-lg text-slate-900">Add Savings Goal</h3>
+        <h3 className="font-extrabold text-lg text-slate-900">{initialGoal ? 'Edit Savings Goal' : 'Add Savings Goal'}</h3>
+        {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Goal Name</label>
@@ -704,7 +720,7 @@ const CreateGoalModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               disabled={submitting}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm disabled:opacity-50"
             >
-              {submitting ? 'Saving...' : 'Add Goal'}
+              {submitting ? 'Saving...' : initialGoal ? 'Save Changes' : 'Add Goal'}
             </button>
           </div>
         </form>

@@ -77,6 +77,26 @@ savingsRouter.post('/', authenticate, requireRole('WORKER'), async (req: Request
   }
 });
 
+/** Update a worker's own savings goal. */
+savingsRouter.put('/:id', authenticate, requireRole('WORKER'), async (req: Request, res: Response) => {
+  try {
+    const data = CreateGoalSchema.parse(req.body);
+    const id = req.params.id as string;
+    const existing = await prisma.savingsGoal.findUnique({ where: { id } });
+    if (!existing || existing.workerId !== req.user!.id) return res.status(404).json({ error: 'Goal not found.' });
+
+    const goal = await prisma.savingsGoal.update({ where: { id }, data: {
+      name: data.name,
+      targetAmount: new Prisma.Decimal(data.targetAmount.toFixed(2)),
+      pictureUrl: data.pictureUrl || null,
+    } });
+    return res.json({ message: 'Savings goal updated.', goal });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
+    return res.status(500).json({ error: 'Failed to update savings goal.' });
+  }
+});
+
 /**
  * DELETE /api/savings/:id
  */
