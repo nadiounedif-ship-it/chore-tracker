@@ -17,7 +17,11 @@ const app = express();
 
 // Middlewares
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: [
+    'http://localhost:5173',
+    'https://chore-tracker-one-gamma.vercel.app',
+    config.frontendUrl
+  ].filter(Boolean),
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
