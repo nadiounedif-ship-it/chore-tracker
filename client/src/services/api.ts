@@ -8,7 +8,7 @@ import {
   PiggyBankTransaction,
 } from '../types';
 
-const BASE_URL = '/api';
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://chore-tracker-backend-m2v3.onrender.com/api';
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
