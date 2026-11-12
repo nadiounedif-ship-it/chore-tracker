@@ -58,7 +58,7 @@ async function createAuthSession(res: Response, user: { id: string; email: strin
   res.cookie('token', token, {
     httpOnly: true,
     secure: config.nodeEnv === 'production',
-    sameSite: config.nodeEnv === 'production' ? 'none' : 'lax',
+    sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 

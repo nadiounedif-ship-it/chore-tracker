@@ -40,7 +40,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       if (session.lastActivityAt.getTime() < now - 5 * 60 * 1000) {
         await prisma.authSession.update({ where: { id: payload.sid }, data: { lastActivityAt: new Date(now), expiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000) } });
         const refreshed = jwt.sign({ id: payload.id, email: payload.email, username: payload.username, role: payload.role, sid: payload.sid }, config.jwtSecret, { expiresIn: '30d' });
-        res.cookie('token', refreshed, { httpOnly: true, secure: config.nodeEnv === 'production', sameSite: config.nodeEnv === 'production' ? 'none' : 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+        res.cookie('token', refreshed, { httpOnly: true, secure: config.nodeEnv === 'production', sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
       }
     }
     req.user = payload;

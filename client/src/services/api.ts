@@ -9,7 +9,9 @@ import {
   PiggyBankTransaction,
 } from '../types';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'https://chore-tracker-backend-m2v3.onrender.com/api';
+// In production on Vercel, keep API calls same-origin so Safari can store and
+// send the existing HttpOnly session cookie. Vercel proxies /api to Render.
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
@@ -230,6 +232,6 @@ export const api = {
     });
     if (!res.ok) throw new Error('Photo upload failed');
     const result = await res.json() as { url: string; filename: string };
-    return { ...result, url: new URL(result.url, BASE_URL).toString() };
+    return { ...result, url: new URL(result.url, new URL(BASE_URL, window.location.origin)).toString() };
   },
 };

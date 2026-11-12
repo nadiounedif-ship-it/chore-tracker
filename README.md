@@ -89,6 +89,10 @@ npm run dev
 
 Open your browser to: **[http://localhost:5173](http://localhost:5173)**
 
+### Production API routing
+
+The Vercel frontend uses same-origin `/api` and `/uploads` routes, configured in `client/vercel.json`, which proxy to the Render backend. This keeps authentication cookies first-party in Safari. If deploying on Vercel, set the project **Root Directory** to `client` so this Vercel configuration is applied. Do not set `VITE_API_URL` to the direct Render URL in the Vercel project; keep it unset or set it to `/api`.
+
 ---
 
 ## 👥 Pre-Configured Demo Accounts
