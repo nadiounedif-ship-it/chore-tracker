@@ -20,7 +20,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export const WorkerDashboard: React.FC = () => {
-  const { user, activeTeamId } = useAuth();
+  const { user, activeTeamId, dashboardTab, setDashboardTab } = useAuth();
   const queryClient = useQueryClient();
 
   // Navigation Tab
@@ -30,6 +30,11 @@ export const WorkerDashboard: React.FC = () => {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showShoppingModal, setShowShoppingModal] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [beforeProofUrl, setBeforeProofUrl] = useState('');
+  const [afterProofUrl, setAfterProofUrl] = useState('');
+  const [photoError, setPhotoError] = useState('');
+  const [shoppingName, setShoppingName] = useState('');
+  const [shoppingTeamId, setShoppingTeamId] = useState(user?.teamMemberships?.[0]?.teamId || '');
 
   // Physical NFC Tag Linking State
   const [customTagUid, setCustomTagUid] = useState('');
@@ -57,6 +62,7 @@ export const WorkerDashboard: React.FC = () => {
   const { data: qrData } = useQuery({
     queryKey: ['qrBadge'],
     queryFn: () => api.sessions.getQrBadge(),
+    refetchInterval: 60_000,
   });
 
   const { data: savingsGoals } = useQuery({
@@ -69,6 +75,13 @@ export const WorkerDashboard: React.FC = () => {
     queryFn: () => api.sessions.getActive(),
     refetchInterval: 3000,
   });
+  const { data: shoppingRequests } = useQuery({ queryKey: ['shoppingRequests', activeTeamId], queryFn: () => api.shopping.list(activeTeamId === 'ALL' ? undefined : activeTeamId) });
+
+  useEffect(() => {
+    if (dashboardTab && ['piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping'].includes(dashboardTab)) {
+      setActiveTab(dashboardTab as any); setDashboardTab(null);
+    }
+  }, [dashboardTab, setDashboardTab]);
 
   // Timer Tick for Active Session
   useEffect(() => {
@@ -100,6 +113,7 @@ export const WorkerDashboard: React.FC = () => {
     mutationFn: ({ assignmentId, beforePictureUrl }: { assignmentId: string; beforePictureUrl?: string }) =>
       api.sessions.remoteStart(assignmentId, beforePictureUrl),
     onSuccess: () => {
+      setBeforeProofUrl('');
       queryClient.invalidateQueries({ queryKey: ['workerActiveSession'] });
       queryClient.invalidateQueries({ queryKey: ['myAssignments'] });
     },
@@ -109,6 +123,7 @@ export const WorkerDashboard: React.FC = () => {
     mutationFn: ({ sessionId, afterPictureUrl }: { sessionId: string; afterPictureUrl?: string }) =>
       api.sessions.remoteSubmit(sessionId, afterPictureUrl),
     onSuccess: () => {
+      setAfterProofUrl('');
       queryClient.invalidateQueries({ queryKey: ['workerActiveSession'] });
       queryClient.invalidateQueries({ queryKey: ['myAssignments'] });
     },
@@ -127,6 +142,11 @@ export const WorkerDashboard: React.FC = () => {
       setNfcErrorMessage(err.message || 'Failed to link NFC tag.');
       setNfcStatusMessage(null);
     },
+  });
+
+  const createShoppingMutation = useMutation({
+    mutationFn: () => api.shopping.createRequest({ teamId: shoppingTeamId, productName: shoppingName }),
+    onSuccess: async () => { setShoppingName(''); await queryClient.invalidateQueries({ queryKey: ['shoppingRequests'] }); },
   });
 
   const handleWebNfcScan = async () => {
@@ -160,6 +180,13 @@ export const WorkerDashboard: React.FC = () => {
       setNfcScanning(false);
       setNfcErrorMessage(err.message || 'NFC scan failed. Ensure NFC is turned on in your Android settings.');
     }
+  };
+
+  const uploadProof = async (file: File | undefined, setUrl: (url: string) => void) => {
+    if (!file) return;
+    setPhotoError('');
+    try { const result = await api.upload(file); setUrl(result.url); }
+    catch (err: any) { setPhotoError(err.message || 'Could not upload this photo.'); }
   };
 
   const formatTimer = (totalSec: number) => {
@@ -220,13 +247,16 @@ export const WorkerDashboard: React.FC = () => {
                 ⏱️ {formatTimer(timerSeconds)}
               </div>
               {activeSession.isRemote && (
-                <button
-                  onClick={() => remoteSubmitMutation.mutate({ sessionId: activeSession.id })}
-                  disabled={remoteSubmitMutation.isPending}
-                  className="bg-white hover:bg-emerald-50 text-emerald-900 font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-md"
-                >
-                  Submit Chore for Review
-                </button>
+                <div className="flex flex-col gap-1 text-xs">
+                  {activeSession.assignment?.chore?.requiresBeforeAfterPictures && <label className="text-emerald-100">After photo (required)<input type="file" accept="image/*" capture="environment" className="block max-w-56 text-xs" onChange={(e) => uploadProof(e.target.files?.[0], setAfterProofUrl)} />{afterProofUrl && <span>Photo ready ✓</span>}</label>}
+                  <button
+                    onClick={() => remoteSubmitMutation.mutate({ sessionId: activeSession.id, afterPictureUrl: afterProofUrl || undefined })}
+                    disabled={remoteSubmitMutation.isPending || (!!activeSession.assignment?.chore?.requiresBeforeAfterPictures && !afterProofUrl)}
+                    className="bg-white hover:bg-emerald-50 text-emerald-900 font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-md disabled:opacity-50"
+                  >
+                    Submit Chore for Review
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -303,7 +333,7 @@ export const WorkerDashboard: React.FC = () => {
             ) : (
               <div className="divide-y divide-slate-100">
                 {piggyData.recentTransactions.map((tx) => (
-                  <div key={tx.id} className="py-3.5 flex items-center justify-between gap-4">
+                  <div key={tx.id} id={`reference-payment-${tx.id}`} className="py-3.5 flex items-center justify-between gap-4">
                     <div>
                       <div className="font-bold text-sm text-slate-900">{tx.description}</div>
                       <div className="text-xs text-slate-400">
@@ -394,7 +424,7 @@ export const WorkerDashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {myAssignments?.map((a) => (
-              <div key={a.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
+              <div key={a.id} id={`reference-chore-${a.choreId}`} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
@@ -406,13 +436,15 @@ export const WorkerDashboard: React.FC = () => {
                   </div>
                   <h3 className="font-bold text-slate-900 text-base">{a.chore?.title}</h3>
                   <p className="text-xs text-slate-500 mt-1">{a.chore?.description}</p>
+                  {a.chore?.requiresBeforeAfterPictures && a.status === 'APPROVED' && <label className="block mt-3 text-xs font-semibold text-slate-600">Before photo (required)<input type="file" accept="image/*" capture="environment" className="block mt-1 text-xs" onChange={(e) => uploadProof(e.target.files?.[0], setBeforeProofUrl)} />{beforeProofUrl && <span className="text-emerald-700">Photo ready ✓</span>}</label>}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Team: {a.chore?.team?.name}</span>
                   {a.status === 'APPROVED' && !activeSession && (
                     <button
-                      onClick={() => remoteStartMutation.mutate({ assignmentId: a.id })}
+                      onClick={() => remoteStartMutation.mutate({ assignmentId: a.id, beforePictureUrl: beforeProofUrl || undefined })}
+                      disabled={!!a.chore?.requiresBeforeAfterPictures && !beforeProofUrl}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all cursor-pointer shadow-xs"
                     >
                       ▶️ Start Remote Work
@@ -585,6 +617,22 @@ export const WorkerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {activeTab === 'shopping' && (
+        <div className="space-y-5 max-w-4xl mx-auto">
+          <div className="bg-white rounded-2xl border border-orange-100 p-6"><h2 className="text-xl font-bold">Request supplies</h2><p className="text-sm text-slate-600 mt-1">Ask your Boss for something needed for a chore.</p>
+            <form className="mt-4 flex flex-col sm:flex-row gap-3" onSubmit={(e) => { e.preventDefault(); if (shoppingTeamId && shoppingName.trim()) createShoppingMutation.mutate(); }}>
+              <select className="rounded-xl border p-3" value={shoppingTeamId} onChange={(e) => setShoppingTeamId(e.target.value)} required><option value="">Choose a team</option>{user?.teamMemberships?.map((m: any) => <option key={m.teamId} value={m.teamId}>{m.team?.name || 'Team'}</option>)}</select>
+              <input className="flex-1 rounded-xl border p-3" placeholder="What do you need?" value={shoppingName} onChange={(e) => setShoppingName(e.target.value)} required minLength={2} />
+              <button disabled={createShoppingMutation.isPending} className="rounded-xl bg-amber-500 text-white px-5 py-3 font-bold">Send request</button>
+            </form>
+            {createShoppingMutation.isError && <p className="text-sm text-rose-700 mt-2">{(createShoppingMutation.error as Error).message}</p>}
+          </div>
+          <div className="bg-white rounded-2xl border border-orange-100 p-6"><h3 className="font-bold">Your requests</h3>{shoppingRequests?.length ? <div className="divide-y mt-3">{shoppingRequests.map((item: any) => <div key={item.id} id={`reference-shopping-${item.id}`} className="py-3 flex justify-between gap-3"><div><div className="font-semibold">{item.productName}</div><div className="text-xs text-slate-500">{item.team?.name} · {new Date(item.createdAt).toLocaleDateString()}</div></div><span className="text-xs font-bold rounded-full bg-amber-50 px-3 py-1 h-fit">{item.status}</span></div>)}</div> : <p className="text-sm text-slate-500 py-5">No supply requests yet.</p>}</div>
+        </div>
+      )}
+
+      {photoError && <div className="fixed bottom-4 right-4 bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl shadow-lg text-sm">{photoError}<button onClick={() => setPhotoError('')} className="ml-3 font-bold">Dismiss</button></div>}
 
       {/* Goal Modal */}
       {showGoalModal && (

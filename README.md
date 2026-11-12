@@ -118,6 +118,31 @@ For effortless testing, the seed script creates a complete family scenario:
   - The worker's phone displays their personalized high-resolution QR code.
   - The Boss can scan this badge directly on their phone or type the UID into the scanner tab.
 
+## ⚙️ New account and team settings
+
+- Open **Profile** in the top bar to update your name, username and profile photo, change your password, verify or change your email address, and manage email notification preferences. Date of birth is read-only because it determines hourly pay.
+- Workers can open **My Teams** to accept or decline invitations, switch teams, review team information, or leave a team. Leaving preserves earnings and completed work history.
+- Bosses can set payment frequency in **Profile → Payment Settings**. Existing payment periods keep their original schedule; newly opened periods use the current setting.
+- Chores can only be deleted if no worker request, assignment, or work session exists. This rule is enforced by the API.
+
+## ✉️ Email delivery setup (optional)
+
+In `server/.env`, configure `RESEND_API_KEY` and `EMAIL_FROM`. Create a free Resend account, verify the sending domain shown in `EMAIL_FROM`, and use an address on that domain. Keep the API key on the server; never add it to the client environment. Email notifications require a verified user email address and the user's enabled notification categories. In-app notifications continue to work when email delivery is not configured or a send fails.
+
+Apply the additive database migration and regenerate Prisma Client when deploying this version:
+
+```bash
+cd server
+npx prisma migrate deploy
+npx prisma generate
+```
+
+The migration adds profile verification/preferences, inactivity-aware sessions, payment schedule details, and notification references. It does not delete existing records.
+
+## 📲 Install on a phone
+
+On Android, open Chore Manager in Chrome and use **Install app** when it appears, or select **Add to Home screen** in Chrome's menu. On iPhone/iPad, open the site in Safari, tap **Share**, then **Add to Home Screen**. NFC requires a compatible Android device, Chrome, and HTTPS. Camera QR scanning is the cross-device fallback. Offline mode caches the app shell only; account, chore and financial actions require a network connection.
+
 ---
 
 ## 📁 Project Architecture

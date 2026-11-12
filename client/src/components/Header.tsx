@@ -1,13 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { Bell, LogOut, CheckCheck, Users, Shield, Sparkles } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export const Header: React.FC = () => {
-  const { user, role, logout, activeTeamId, setActiveTeamId } = useAuth();
+  const { user, role, logout, activeTeamId, setActiveTeamId, activePage, setActivePage, setDashboardTab } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [online, setOnline] = useState(navigator.onLine);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const onInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event); };
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener('beforeinstallprompt', onInstall);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('beforeinstallprompt', onInstall); window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
 
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],
@@ -22,6 +34,34 @@ export const Header: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => api.notifications.markRead(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+  const openNotification = (notification: any) => {
+    if (!notification.isRead) markReadMutation.mutate(notification.id);
+    const url = notification.linkUrl || '';
+    if (url.includes('/teams')) setActivePage('teams');
+    else {
+      setActivePage('dashboard');
+      if (role === 'BOSS') {
+        if (url.includes('shopping')) setDashboardTab('shopping');
+        else if (url.includes('worker')) setDashboardTab('workers');
+        else if (url.includes('approval') || url.includes('chore')) setDashboardTab('chores');
+        else if (url.includes('piggy')) setDashboardTab('payouts');
+      } else if (url.includes('piggy')) setDashboardTab('piggybank');
+      else if (url.includes('chore')) setDashboardTab('mychores');
+    }
+    if (notification.teamId && role === 'WORKER') setActiveTeamId(notification.teamId);
+    setShowNotifications(false);
+    if (notification.referenceType && notification.referenceId) {
+      window.setTimeout(() => {
+        const target = document.getElementById(`reference-${notification.referenceType}-${notification.referenceId}`);
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 400);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 shadow-xs">
@@ -71,6 +111,8 @@ export const Header: React.FC = () => {
 
         {/* User Actions & Notifications */}
         <div className="flex items-center gap-2 relative">
+          {!online && <span className="hidden sm:inline text-xs font-bold rounded-full bg-amber-100 text-amber-900 px-3 py-1">Offline · some features need internet</span>}
+          {online && installPrompt && <button onClick={async () => { await installPrompt.prompt(); setInstallPrompt(null); }} className="hidden sm:inline-flex text-xs font-bold rounded-xl bg-amber-100 text-amber-900 px-3 py-2">Install app</button>}
           {/* Notification Button */}
           <button
             onClick={() => setShowNotifications(!showNotifications)}
@@ -105,9 +147,10 @@ export const Header: React.FC = () => {
                   <p className="text-xs text-slate-400 text-center py-6">No notifications yet.</p>
                 ) : (
                   notifData.notifications.map((n) => (
-                    <div
+                    <button
                       key={n.id}
-                      className={`p-2.5 rounded-xl text-xs transition-colors ${
+                      onClick={() => openNotification(n)}
+                      className={`w-full text-left p-2.5 rounded-xl text-xs transition-colors cursor-pointer ${
                         n.isRead ? 'bg-slate-50 text-slate-600' : 'bg-brand-50/70 border border-brand-100 text-slate-900 font-medium'
                       }`}
                     >
@@ -118,7 +161,7 @@ export const Header: React.FC = () => {
                         </span>
                       </div>
                       <p className="mt-1 text-slate-600">{n.message}</p>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -127,13 +170,14 @@ export const Header: React.FC = () => {
 
           {/* Profile Name & Avatar */}
           <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs">
-              {user?.fullName?.charAt(0) || user?.username?.charAt(0) || 'U'}
-            </div>
+            <button onClick={() => setActivePage('profile')} className={`w-8 h-8 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center font-bold text-amber-900 text-xs ${activePage === 'profile' ? 'ring-2 ring-amber-500' : ''}`} title="Your profile">
+              {user?.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : user?.fullName?.charAt(0) || user?.username?.charAt(0) || 'U'}
+            </button>
             <div className="hidden sm:block text-left leading-tight">
               <div className="text-sm font-semibold text-slate-800">{user?.fullName}</div>
               <div className="text-[11px] text-slate-400">@{user?.username}</div>
             </div>
+            <button onClick={() => role === 'WORKER' ? setActivePage('teams') : setActivePage('profile')} className="hidden sm:inline-flex text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-2 rounded-xl">{role === 'WORKER' ? 'My Teams' : 'Profile'}</button>
           </div>
 
           {/* Logout Button */}

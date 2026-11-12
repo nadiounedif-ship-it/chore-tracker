@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
+import { createNotification } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 
 export const shoppingRouter = Router();
@@ -55,7 +56,7 @@ shoppingRouter.post('/', authenticate, requireRole('WORKER'), async (req: Reques
     });
 
     // Notify Boss
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: membership.team.bossId,
         teamId: data.teamId,
@@ -63,6 +64,7 @@ shoppingRouter.post('/', authenticate, requireRole('WORKER'), async (req: Reques
         title: 'New Shopping Request',
         message: `${req.user!.username} requested: "${data.productName}" for chores.`,
         linkUrl: '/boss/shopping',
+        referenceType: 'shopping', referenceId: item.id,
       },
     });
 
@@ -142,7 +144,7 @@ shoppingRouter.put('/:id/status', authenticate, requireRole('BOSS'), async (req:
     });
 
     // Notify worker
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: item.workerId,
         teamId: item.teamId,
@@ -150,6 +152,7 @@ shoppingRouter.put('/:id/status', authenticate, requireRole('BOSS'), async (req:
         title: `Product ${status === 'PURCHASED' ? 'Purchased!' : 'Updated'}`,
         message: `Boss marked "${item.productName}" as ${status.toLowerCase()}.`,
         linkUrl: '/worker/shopping',
+        referenceType: 'shopping', referenceId: item.id,
       },
     });
 

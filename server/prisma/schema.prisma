@@ -23,34 +23,38 @@ enum AccountStatus {
 }
 
 model User {
-  id               String                 @id @default(uuid())
-  email            String                 @unique
-  username         String                 @unique
-  passwordHash     String
-  fullName         String
-  avatarUrl        String?
-  dateOfBirth      DateTime?              // Required for workers, used for age-based wages
-  role             UserRole
-  status           AccountStatus          @default(ACTIVE)
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+  id                           String        @id @default(uuid())
+  email                        String        @unique
+  username                     String        @unique
+  passwordHash                 String
+  fullName                     String
+  avatarUrl                    String?
+  dateOfBirth                  DateTime? // Required for workers, used for age-based wages
+  role                         UserRole
+  status                       AccountStatus @default(ACTIVE)
+  emailVerified                Boolean       @default(false)
+  emailNotificationPreferences Json          @default("{\"enabled\":false,\"categories\":[]}")
+  createdAt                    DateTime      @default(now())
+  updatedAt                    DateTime      @updatedAt
 
   // Boss relation: A boss has exactly ONE team (enforced by unique bossId in Team)
-  ownedTeam        Team?                  @relation("TeamBoss")
+  ownedTeam Team? @relation("TeamBoss")
 
   // Worker relations
-  teamMemberships  TeamMember[]
-  teamInvitations  TeamInvitation[]
-  nfcBadge         NfcBadge?
-  choreAssignments ChoreAssignment[]
-  choreSessions    ChoreSession[]
-  shoppingRequests ShoppingRequest[]
-  transactions     PiggyBankTransaction[]
-  paymentsReceived Payment[]
-  savingsGoals     SavingsGoal[]
-  achievements     UserAchievement[]
-  disputes         Dispute[]
-  notifications    Notification[]
+  teamMemberships         TeamMember[]
+  teamInvitations         TeamInvitation[]
+  nfcBadge                NfcBadge?
+  choreAssignments        ChoreAssignment[]
+  choreSessions           ChoreSession[]
+  shoppingRequests        ShoppingRequest[]
+  transactions            PiggyBankTransaction[]
+  paymentsReceived        Payment[]
+  savingsGoals            SavingsGoal[]
+  achievements            UserAchievement[]
+  disputes                Dispute[]
+  notifications           Notification[]
+  emailVerificationTokens EmailVerificationToken[]
+  authSessions            AuthSession[]
 
   @@index([role])
 }
@@ -73,15 +77,17 @@ enum PaymentSchedule {
 }
 
 model Team {
-  id               String                 @id @default(uuid())
-  name             String
-  description      String?
-  avatarUrl        String?
-  paymentSchedule  PaymentSchedule        @default(WEEKLY_SUNDAY)
-  bossId           String                 @unique // Enforces: One Boss -> Exactly One Team
-  boss             User                   @relation("TeamBoss", fields: [bossId], references: [id], onDelete: Restrict)
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+  id                        String          @id @default(uuid())
+  name                      String
+  description               String?
+  avatarUrl                 String?
+  paymentSchedule           PaymentSchedule @default(WEEKLY_SUNDAY)
+  customPaymentIntervalDays Int?
+  customPaymentDay          Int?
+  bossId                    String          @unique // Enforces: One Boss -> Exactly One Team
+  boss                      User            @relation("TeamBoss", fields: [bossId], references: [id], onDelete: Restrict)
+  createdAt                 DateTime        @default(now())
+  updatedAt                 DateTime        @updatedAt
 
   members          TeamMember[]
   invitations      TeamInvitation[]
@@ -116,7 +122,7 @@ model TeamMember {
 
 enum InvitationType {
   WORKER_REQUEST // Worker asked to join
-  BOSS_INVITE    // Boss invited worker
+  BOSS_INVITE // Boss invited worker
 }
 
 enum InvitationStatus {
@@ -141,6 +147,29 @@ model TeamInvitation {
   @@index([teamId, workerId, status])
 }
 
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newEmail  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model AuthSession {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([userId, expiresAt])
+}
+
 // -----------------------------------------------------------------------------
 // SALARY SETTINGS (AGE-BASED BRACKETS)
 // -----------------------------------------------------------------------------
@@ -149,8 +178,8 @@ model SalaryBracket {
   id         String   @id @default(uuid())
   teamId     String
   team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  minAge     Int      // e.g. 13
-  maxAge     Int      // e.g. 13 (or 99 for 18+)
+  minAge     Int // e.g. 13
+  maxAge     Int // e.g. 13 (or 99 for 18+)
   hourlyRate Decimal  @db.Decimal(10, 2) // In Euros with 2 digits after the comma (e.g. 3.50 for €3.50/hr)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -206,21 +235,21 @@ model Chore {
   paymentType                 PaymentType         @default(FIXED)
   fixedAmount                 Decimal             @default(0.00) @db.Decimal(10, 2) // In Euros
   estimatedDurationMinutes    Int?
-  weekNumber                  Int                 // ISO week number
-  year                        Int                 // e.g. 2026
+  weekNumber                  Int // ISO week number
+  year                        Int // e.g. 2026
   deadline                    DateTime?
   requiresBeforeAfterPictures Boolean             @default(false)
   requiresNfc                 Boolean             @default(false)
   allowMultipleWorkers        Boolean             @default(false)
   status                      ChoreStatus         @default(OPEN)
-  pictures                    String[]            // Reference photo URLs
+  pictures                    String[] // Reference photo URLs
   recurringChoreId            String?
   recurringRule               RecurringChoreRule? @relation(fields: [recurringChoreId], references: [id], onDelete: SetNull)
   createdAt                   DateTime            @default(now())
   updatedAt                   DateTime            @updatedAt
 
-  assignments                 ChoreAssignment[]
-  shoppingRequests            ShoppingRequest[]
+  assignments      ChoreAssignment[]
+  shoppingRequests ShoppingRequest[]
 
   @@index([teamId, weekNumber, year])
   @@index([teamId, status])
@@ -243,7 +272,7 @@ model RecurringChoreRule {
   paymentType   PaymentType
   fixedAmount   Decimal             @default(0.00) @db.Decimal(10, 2)
   frequency     RecurrenceFrequency
-  dayOfWeek     Int?                // 1 = Monday, 7 = Sunday
+  dayOfWeek     Int? // 1 = Monday, 7 = Sunday
   isActive      Boolean             @default(true)
   lastGenerated DateTime?
   createdAt     DateTime            @default(now())
@@ -274,7 +303,7 @@ model ChoreAssignment {
   approvedAt  DateTime?
   completedAt DateTime?
 
-  sessions    ChoreSession[]
+  sessions ChoreSession[]
 
   @@unique([choreId, workerId])
   @@index([workerId])
@@ -300,35 +329,35 @@ enum SessionStatus {
 }
 
 model ChoreSession {
-  id                String          @id @default(uuid())
-  assignmentId      String
-  assignment        ChoreAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  workerId          String
-  worker            User            @relation(fields: [workerId], references: [id], onDelete: Restrict)
-  teamId            String
-  team              Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  clockInAt         DateTime        @default(now())
-  clockOutAt        DateTime?
-  durationSeconds   Int?
-  clockInMethod     ClockMethod     @default(MANUAL)
-  clockOutMethod    ClockMethod?
-  isRemote          Boolean         @default(false)
-  beforePictureUrl  String?
-  afterPictureUrl   String?
-  notes             String?
-  rejectionReason   String?
+  id               String          @id @default(uuid())
+  assignmentId     String
+  assignment       ChoreAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  workerId         String
+  worker           User            @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  teamId           String
+  team             Team            @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  clockInAt        DateTime        @default(now())
+  clockOutAt       DateTime?
+  durationSeconds  Int?
+  clockInMethod    ClockMethod     @default(MANUAL)
+  clockOutMethod   ClockMethod?
+  isRemote         Boolean         @default(false)
+  beforePictureUrl String?
+  afterPictureUrl  String?
+  notes            String?
+  rejectionReason  String?
 
   // Historical snapshot of hourly rate applied at the time of work
   workerAgeAtWork   Int?
-  hourlyRateApplied Decimal?        @db.Decimal(10, 2) // In Euros
-  finalAmount       Decimal         @default(0.00) @db.Decimal(10, 2) // In Euros
+  hourlyRateApplied Decimal? @db.Decimal(10, 2) // In Euros
+  finalAmount       Decimal  @default(0.00) @db.Decimal(10, 2) // In Euros
 
-  status            SessionStatus   @default(ACTIVE)
-  approvedAt        DateTime?
-  approvedById      String?
+  status       SessionStatus @default(ACTIVE)
+  approvedAt   DateTime?
+  approvedById String?
 
-  transaction       PiggyBankTransaction?
-  dispute           Dispute?
+  transaction PiggyBankTransaction?
+  dispute     Dispute?
 
   @@index([workerId, status])
   @@index([teamId, status])
@@ -348,6 +377,19 @@ model NfcBadge {
   lastScannedAt DateTime?
 
   @@index([badgeUid])
+}
+
+model BadgeAuditLog {
+  id           String   @id @default(uuid())
+  badgeUid     String
+  fromWorkerId String
+  toWorkerId   String
+  actorUserId  String
+  teamId       String
+  createdAt    DateTime @default(now())
+
+  @@index([badgeUid, createdAt])
+  @@index([teamId, createdAt])
 }
 
 // -----------------------------------------------------------------------------
@@ -386,34 +428,37 @@ enum PeriodStatus {
 }
 
 model PaymentPeriod {
-  id        String       @id @default(uuid())
-  teamId    String
-  team      Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  startDate DateTime
-  endDate   DateTime
-  status    PeriodStatus @default(OPEN)
-  closedAt  DateTime?
-  createdAt DateTime     @default(now())
+  id                        String          @id @default(uuid())
+  teamId                    String
+  team                      Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  startDate                 DateTime
+  endDate                   DateTime
+  status                    PeriodStatus    @default(OPEN)
+  closedAt                  DateTime?
+  schedule                  PaymentSchedule @default(WEEKLY_SUNDAY)
+  customPaymentIntervalDays Int?
+  customPaymentDay          Int?
+  createdAt                 DateTime        @default(now())
 
-  payments  Payment[]
+  payments Payment[]
 
   @@index([teamId, status])
 }
 
 model Payment {
-  id              String                 @id @default(uuid())
+  id              String        @id @default(uuid())
   teamId          String
-  team            Team                   @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  team            Team          @relation(fields: [teamId], references: [id], onDelete: Restrict)
   workerId        String
-  worker          User                   @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  worker          User          @relation(fields: [workerId], references: [id], onDelete: Restrict)
   paymentPeriodId String
-  paymentPeriod   PaymentPeriod          @relation(fields: [paymentPeriodId], references: [id], onDelete: Restrict)
-  totalAmount     Decimal                @db.Decimal(10, 2) // In Euros
-  paidAt          DateTime               @default(now())
+  paymentPeriod   PaymentPeriod @relation(fields: [paymentPeriodId], references: [id], onDelete: Restrict)
+  totalAmount     Decimal       @db.Decimal(10, 2) // In Euros
+  paidAt          DateTime      @default(now())
   paidById        String
   notes           String?
 
-  transactions    PiggyBankTransaction[]
+  transactions PiggyBankTransaction[]
 
   @@index([teamId, workerId])
   @@index([paymentPeriodId])
@@ -525,17 +570,19 @@ enum NotificationType {
 }
 
 model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  teamId    String?
-  team      Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  message   String
-  isRead    Boolean          @default(false)
-  linkUrl   String?
-  createdAt DateTime         @default(now())
+  id            String           @id @default(uuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId        String?
+  team          Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  type          NotificationType
+  title         String
+  message       String
+  isRead        Boolean          @default(false)
+  linkUrl       String?
+  referenceType String?
+  referenceId   String?
+  createdAt     DateTime         @default(now())
 
   @@index([userId, isRead])
 }

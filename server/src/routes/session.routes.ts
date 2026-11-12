@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
+import { createNotification } from '../utils/notifications.js';
+import { sendNotificationEmail } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { calculateAge } from '../utils/age.js';
 import { calculateHourlyEarnings, roundUpEuro } from '../utils/currency.js';
 import { Prisma } from '@prisma/client';
 import QRCode from 'qrcode';
+import crypto from 'crypto';
+import { config } from '../config.js';
 
 export const sessionRouter = Router();
 
@@ -14,6 +18,8 @@ const NfcClockInSchema = z.object({
   badgeUid: z.string().min(1),
   choreId: z.string().min(1),
   method: z.enum(['NFC', 'QR', 'MANUAL']).default('NFC'),
+  proof: z.string().optional(),
+  issuedAt: z.number().optional(),
 });
 
 const NfcClockOutSchema = z.object({
@@ -21,7 +27,20 @@ const NfcClockOutSchema = z.object({
   sessionId: z.string().optional(),
   method: z.enum(['NFC', 'QR', 'MANUAL']).default('NFC'),
   notes: z.string().optional(),
+  proof: z.string().optional(),
+  issuedAt: z.number().optional(),
 });
+
+function makeBadgeProof(badgeUid: string, workerId: string, issuedAt: number) {
+  return crypto.createHmac('sha256', config.jwtSecret).update(`${badgeUid}:${workerId}:${issuedAt}`).digest('hex');
+}
+
+function validBadgeProof(badgeUid: string, workerId: string, proof?: string, issuedAt?: number) {
+  if (!proof || !issuedAt || Math.abs(Date.now() - issuedAt) > 2 * 60 * 1000) return false;
+  const expected = Buffer.from(makeBadgeProof(badgeUid, workerId, issuedAt));
+  const received = Buffer.from(proof);
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+}
 
 const RemoteStartSchema = z.object({
   assignmentId: z.string().min(1),
@@ -117,6 +136,34 @@ sessionRouter.post('/nfc/link', authenticate, async (req: Request, res: Response
   }
 });
 
+sessionRouter.post('/nfc/reassign', authenticate, requireRole('BOSS'), async (req: Request, res: Response) => {
+  try {
+    const { badgeUid, workerId } = z.object({ badgeUid: z.string().min(2).max(100), workerId: z.string().min(1) }).parse(req.body);
+    const team = await prisma.team.findUnique({ where: { bossId: req.user!.id } });
+    if (!team) return res.status(404).json({ error: 'Team not found.' });
+    const badge = await prisma.nfcBadge.findUnique({ where: { badgeUid } });
+    if (!badge) return res.status(404).json({ error: 'Badge is not registered.' });
+    const [currentMembership, targetMembership, target] = await Promise.all([
+      prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId: badge.workerId } } }),
+      prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId } } }),
+      prisma.user.findUnique({ where: { id: workerId }, select: { role: true, nfcBadge: true } }),
+    ]);
+    if (!currentMembership) return res.status(403).json({ error: 'The current badge owner has no membership history with your team.' });
+    if (badge.workerId === workerId) return res.status(400).json({ error: 'This badge already belongs to that worker.' });
+    if (!target || target.role !== 'WORKER' || !targetMembership || targetMembership.status !== 'ACTIVE') return res.status(403).json({ error: 'The new owner must be an active worker in your team.' });
+    if (target.nfcBadge) return res.status(409).json({ error: 'The new owner already has a badge. Unlink or transfer that badge first.' });
+    await prisma.$transaction(async (tx) => {
+      await tx.nfcBadge.delete({ where: { id: badge.id } });
+      await tx.badgeAuditLog.create({ data: { badgeUid, fromWorkerId: badge.workerId, toWorkerId: workerId, actorUserId: req.user!.id, teamId: team.id } });
+      await tx.nfcBadge.create({ data: { badgeUid, workerId, label: badge.label || 'Transferred NFC Badge' } });
+    });
+    return res.json({ message: 'Badge reassigned and recorded in the team activity log.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
+    return res.status(500).json({ error: 'Could not reassign this badge.' });
+  }
+});
+
 /**
  * GET /api/sessions/qr/badge (Worker gets their QR badge data and dataURL)
  */
@@ -135,11 +182,14 @@ sessionRouter.get('/qr/badge', authenticate, requireRole('WORKER'), async (req: 
       return res.status(404).json({ error: 'NFC/QR badge not found.' });
     }
 
-    // QR Payload encodes the badgeUid
+    // A QR payload contains a short-lived signed badge reference, not personal details or a login token.
+    const issuedAt = Date.now();
+    const proof = makeBadgeProof(badge.badgeUid, badge.workerId, issuedAt);
     const qrDataUrl = await QRCode.toDataURL(JSON.stringify({
       type: 'CHORE_MANAGER_BADGE',
       badgeUid: badge.badgeUid,
-      workerId: badge.workerId,
+      issuedAt,
+      proof,
     }));
 
     return res.json({
@@ -150,6 +200,26 @@ sessionRouter.get('/qr/badge', authenticate, requireRole('WORKER'), async (req: 
   } catch (error) {
     return res.status(500).json({ error: 'Failed to generate QR badge.' });
   }
+});
+
+sessionRouter.get('/identify/:badgeUid', authenticate, requireRole('BOSS'), async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { bossId: req.user!.id } });
+    if (!team) return res.status(404).json({ error: 'Team not found.' });
+    const badgeUid = String(req.params.badgeUid);
+    const badge = await prisma.nfcBadge.findUnique({ where: { badgeUid }, include: { worker: { select: { id: true, fullName: true, username: true, avatarUrl: true } } } });
+    if (!badge) return res.status(404).json({ error: 'Badge not recognized.' });
+    const proof = typeof req.query.proof === 'string' ? req.query.proof : undefined;
+    const issuedAt = Number(req.query.issuedAt);
+    if (proof && !validBadgeProof(badgeUid, badge.workerId, proof, issuedAt)) return res.status(401).json({ error: 'This QR badge has expired or is invalid. Ask the worker to refresh their badge.' });
+    const membership = await prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId: badge.workerId } } });
+    if (!membership || membership.status !== 'ACTIVE') return res.status(403).json({ error: 'This worker is not an active member of your team.' });
+    const [assignments, activeSession] = await Promise.all([
+      prisma.choreAssignment.findMany({ where: { workerId: badge.workerId, status: 'APPROVED', chore: { teamId: team.id } }, include: { chore: { select: { id: true, title: true, paymentType: true, fixedAmount: true } } } }),
+      prisma.choreSession.findFirst({ where: { workerId: badge.workerId, teamId: team.id, status: 'ACTIVE' }, include: { assignment: { include: { chore: { select: { id: true, title: true } } } } } }),
+    ]);
+    return res.json({ worker: badge.worker, assignments, activeSession, badgeUid, proof, issuedAt });
+  } catch { return res.status(500).json({ error: 'Could not identify badge.' }); }
 });
 
 /**
@@ -180,6 +250,9 @@ sessionRouter.post('/clock-in', authenticate, requireRole('BOSS'), async (req: R
     }
 
     const worker = badge.worker;
+    if (data.method === 'QR' && !validBadgeProof(data.badgeUid, worker.id, data.proof, data.issuedAt)) {
+      return res.status(401).json({ error: 'QR badge signature expired or invalid. Refresh the worker badge and scan again.' });
+    }
 
     // Verify worker is active member of this team
     const membership = await prisma.teamMember.findUnique({
@@ -327,6 +400,10 @@ sessionRouter.post('/clock-out', authenticate, requireRole('BOSS'), async (req: 
       return res.status(404).json({ error: 'Badge not recognized.' });
     }
 
+    if (data.method === 'QR' && !validBadgeProof(data.badgeUid, badge.workerId, data.proof, data.issuedAt)) {
+      return res.status(401).json({ error: 'QR badge signature expired or invalid. Refresh the worker badge and scan again.' });
+    }
+
     // Find active session in this team for this worker
     const session = await prisma.choreSession.findFirst({
       where: {
@@ -406,7 +483,7 @@ sessionRouter.post('/clock-out', authenticate, requireRole('BOSS'), async (req: 
       });
 
       // Create notification for Worker
-      await tx.notification.create({
+      const notification = await tx.notification.create({
         data: {
           userId: session.workerId,
           teamId: team.id,
@@ -414,11 +491,13 @@ sessionRouter.post('/clock-out', authenticate, requireRole('BOSS'), async (req: 
           title: 'Chore Approved & Credited!',
           message: `You earned ${finalAmount.toString().replace('.', ',')} € for "${session.assignment.chore.title}".`,
           linkUrl: '/worker/piggy-bank',
+          referenceType: 'session', referenceId: session.id,
         },
       });
 
-      return { updatedSession, transaction };
+      return { updatedSession, transaction, notification };
     });
+    await sendNotificationEmail(result.notification.id);
 
     return res.json({
       message: `${badge.worker.fullName} clocked out. ${finalAmount.toString().replace('.', ',')} € credited!`,
@@ -565,7 +644,7 @@ sessionRouter.post('/remote/submit', authenticate, requireRole('WORKER'), async 
     });
 
     // Notify Boss
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: session.assignment.chore.team.bossId,
         teamId: session.teamId,
@@ -573,6 +652,7 @@ sessionRouter.post('/remote/submit', authenticate, requireRole('WORKER'), async 
         title: 'Chore Ready for Approval',
         message: `${req.user!.username} finished "${session.assignment.chore.title}". Please review proof and approve.`,
         linkUrl: '/boss/approvals',
+        referenceType: 'session', referenceId: session.id,
       },
     });
 
@@ -614,7 +694,7 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
     }
 
     if (approved) {
-      await prisma.$transaction(async (tx) => {
+      const notification = await prisma.$transaction(async (tx) => {
         await tx.choreSession.update({
           where: { id: sessionId },
           data: {
@@ -652,7 +732,7 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
         });
 
         // Notification
-        await tx.notification.create({
+        return tx.notification.create({
           data: {
             userId: session.workerId,
             teamId: session.teamId,
@@ -660,9 +740,11 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
             title: 'Chore Approved!',
             message: `Boss approved "${session.assignment.chore.title}". +${session.finalAmount.toString().replace('.', ',')} € credited!`,
             linkUrl: '/worker/piggy-bank',
+            referenceType: 'session', referenceId: session.id,
           },
         });
       });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: 'Session approved and earnings credited to worker piggy bank.' });
     } else {
@@ -670,19 +752,19 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
         return res.status(400).json({ error: 'Rejection reason is required when declining a chore submission.' });
       }
 
-      await prisma.$transaction([
-        prisma.choreSession.update({
+      const notification = await prisma.$transaction(async (tx) => {
+        await tx.choreSession.update({
           where: { id: sessionId },
           data: {
             status: 'REJECTED',
             rejectionReason,
           },
-        }),
-        prisma.choreAssignment.update({
+        });
+        await tx.choreAssignment.update({
           where: { id: session.assignmentId },
           data: { status: 'APPROVED' }, // allow re-work
-        }),
-        prisma.notification.create({
+        });
+        return tx.notification.create({
           data: {
             userId: session.workerId,
             teamId: session.teamId,
@@ -690,9 +772,11 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
             title: 'Chore Submission Needs Work',
             message: `Boss requested changes on "${session.assignment.chore.title}": ${rejectionReason}`,
             linkUrl: '/worker/chores',
+            referenceType: 'session', referenceId: session.id,
           },
-        }),
-      ]);
+        });
+      });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: 'Chore returned to worker with feedback.' });
     }

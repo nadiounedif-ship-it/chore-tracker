@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
+import { createNotification } from '../utils/notifications.js';
+import { sendNotificationEmail } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
 
@@ -54,6 +56,11 @@ choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, re
       return res.status(404).json({ error: 'Team not found for this Boss.' });
     }
 
+    if (data.assignedWorkerId) {
+      const member = await prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId: data.assignedWorkerId } }, include: { worker: { select: { role: true } } } });
+      if (!member || member.status !== 'ACTIVE' || member.worker.role !== 'WORKER') return res.status(400).json({ error: 'Direct assignment requires an active worker in your team.' });
+    }
+
     const chore = await prisma.chore.create({
       data: {
         teamId: team.id,
@@ -96,7 +103,7 @@ choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, re
 
     // If directly assigned, notify worker
     if (data.assignedWorkerId) {
-      await prisma.notification.create({
+      await createNotification({
         data: {
           userId: data.assignedWorkerId,
           teamId: team.id,
@@ -104,6 +111,7 @@ choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, re
           title: 'Chore Assigned',
           message: `Boss ${req.user!.username} assigned you the chore "${chore.title}".`,
           linkUrl: '/worker/chores',
+          referenceType: 'chore', referenceId: chore.id,
         },
       });
     }
@@ -275,7 +283,7 @@ choreRouter.post('/:choreId/request', authenticate, requireRole('WORKER'), async
     });
 
     // Notify Boss
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: chore.team.bossId,
         teamId: chore.teamId,
@@ -283,6 +291,7 @@ choreRouter.post('/:choreId/request', authenticate, requireRole('WORKER'), async
         title: 'Chore Request',
         message: `${req.user!.username} requested to do "${chore.title}".`,
         linkUrl: '/boss/chores',
+        referenceType: 'chore', referenceId: chore.id,
       },
     });
 
@@ -317,19 +326,10 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
     }
 
     if (action === 'APPROVE') {
-      await prisma.$transaction([
-        prisma.choreAssignment.update({
-          where: { id: assignmentId },
-          data: {
-            status: 'APPROVED',
-            approvedAt: new Date(),
-          },
-        }),
-        prisma.chore.update({
-          where: { id: assignment.choreId },
-          data: { status: 'ASSIGNED' },
-        }),
-        prisma.notification.create({
+      const notification = await prisma.$transaction(async (tx) => {
+        await tx.choreAssignment.update({ where: { id: assignmentId }, data: { status: 'APPROVED', approvedAt: new Date() } });
+        await tx.chore.update({ where: { id: assignment.choreId }, data: { status: 'ASSIGNED' } });
+        return tx.notification.create({
           data: {
             userId: assignment.workerId,
             teamId: assignment.chore.teamId,
@@ -337,18 +337,17 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
             title: 'Chore Request Approved!',
             message: `Boss ${req.user!.username} approved your request for "${assignment.chore.title}". You can now start the chore!`,
             linkUrl: '/worker/chores',
+            referenceType: 'chore', referenceId: assignment.choreId,
           },
-        }),
-      ]);
+        });
+      });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: 'Chore assigned to worker successfully.' });
     } else {
-      await prisma.$transaction([
-        prisma.choreAssignment.update({
-          where: { id: assignmentId },
-          data: { status: 'REJECTED' },
-        }),
-        prisma.notification.create({
+      const notification = await prisma.$transaction(async (tx) => {
+        await tx.choreAssignment.update({ where: { id: assignmentId }, data: { status: 'REJECTED' } });
+        return tx.notification.create({
           data: {
             userId: assignment.workerId,
             teamId: assignment.chore.teamId,
@@ -356,9 +355,11 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
             title: 'Chore Request Declined',
             message: `Your request for "${assignment.chore.title}" was declined by the Boss.`,
             linkUrl: '/worker/chores',
+            referenceType: 'chore', referenceId: assignment.choreId,
           },
-        }),
-      ]);
+        });
+      });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: 'Chore request declined.' });
     }
@@ -430,15 +431,14 @@ choreRouter.delete('/:choreId', authenticate, requireRole('BOSS'), async (req: R
     }
 
     // Prevent deleting chores that already have work sessions or historical records
-    const hasActiveOrCompletedSessions = chore.assignments.some((a) =>
-      a.sessions.some(
-        (s) => s.status === 'APPROVED' || s.status === 'ACTIVE' || s.status === 'SUBMITTED'
-      )
-    );
-
-    if (hasActiveOrCompletedSessions) {
-      return res.status(400).json({
-        error: 'Cannot delete a chore that has recorded or approved work sessions. Financial and work history must be preserved.',
+    const hasSessions = chore.assignments.some((a) => a.sessions.length > 0);
+    if (hasSessions || chore.assignments.length > 0 || !['OPEN', 'CANCELLED'].includes(chore.status)) {
+      return res.status(409).json({
+        error: hasSessions
+          ? 'This chore has work history and cannot be deleted. Its financial and work records must be preserved.'
+          : chore.assignments.length > 0
+            ? 'This chore has a worker assignment or request and cannot be deleted.'
+            : 'This chore is already in progress or completed and cannot be deleted.',
       });
     }
 

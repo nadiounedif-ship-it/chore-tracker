@@ -37,17 +37,17 @@ export const api = {
   auth: {
     me: () => request<User>('/auth/me'),
     login: (identifier: string, password: string) =>
-      request<{ message: string; user: User; token: string }>('/auth/login', {
+      request<{ message: string; user: User }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier, password }),
       }),
     registerBoss: (data: any) =>
-      request<{ message: string; user: User; token: string }>('/auth/register-boss', {
+      request<{ message: string; user: User }>('/auth/register-boss', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     registerWorker: (data: any) =>
-      request<{ message: string; user: User; token: string }>('/auth/register-worker', {
+      request<{ message: string; user: User }>('/auth/register-worker', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -57,11 +57,21 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    updatePassword: (currentPassword: string, newPassword: string) =>
+      request<{ message: string }>('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+    changeEmail: (email: string, password: string) =>
+      request<{ message: string }>('/auth/email/change', { method: 'POST', body: JSON.stringify({ email, password }) }),
+    verifyEmail: (token: string) => request<{ message: string }>('/auth/email/verify', { method: 'POST', body: JSON.stringify({ token }) }),
+    updateNotificationPreferences: (preferences: { enabled: boolean; categories: string[] }) =>
+      request<{ emailNotificationPreferences: any }>('/auth/notification-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   },
 
   // Teams
   teams: {
     getMyTeam: () => request<Team & { members: any[]; salaryBrackets: any[]; invitations: any[] }>('/teams/my-team'),
+    savePaymentSettings: (data: any) => request<any>('/teams/my-team/payment-settings', { method: 'PUT', body: JSON.stringify(data) }),
+    cancelInvitation: (id: string) => request<any>(`/teams/my-team/invitations/${id}`, { method: 'DELETE' }),
+    getMyTeams: () => request<any[]>('/teams/my-teams'),
     updateMyTeam: (data: any) => request<{ message: string; team: Team }>('/teams/my-team', { method: 'PUT', body: JSON.stringify(data) }),
     searchWorkers: (q: string) => request<any[]>(`/teams/search-workers?q=${encodeURIComponent(q)}`),
     inviteWorker: (workerIdentifier: string, message?: string) =>
@@ -125,15 +135,17 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ badgeUid, label, workerId }),
       }),
-    clockIn: (badgeUid: string, choreId: string, method: 'NFC' | 'QR' | 'MANUAL' = 'NFC') =>
+    reassignBadge: (badgeUid: string, workerId: string) => request<{ message: string }>('/sessions/nfc/reassign', { method: 'POST', body: JSON.stringify({ badgeUid, workerId }) }),
+    identifyBadge: (badgeUid: string, proof?: string, issuedAt?: number) => request<any>(`/sessions/identify/${encodeURIComponent(badgeUid)}?${new URLSearchParams({ ...(proof ? { proof } : {}), ...(issuedAt ? { issuedAt: String(issuedAt) } : {}) })}`),
+    clockIn: (badgeUid: string, choreId: string, method: 'NFC' | 'QR' | 'MANUAL' = 'NFC', proof?: string, issuedAt?: number) =>
       request<any>('/sessions/clock-in', {
         method: 'POST',
-        body: JSON.stringify({ badgeUid, choreId, method }),
+        body: JSON.stringify({ badgeUid, choreId, method, proof, issuedAt }),
       }),
-    clockOut: (badgeUid: string, notes?: string, method: 'NFC' | 'QR' | 'MANUAL' = 'NFC') =>
+    clockOut: (badgeUid: string, notes?: string, method: 'NFC' | 'QR' | 'MANUAL' = 'NFC', proof?: string, issuedAt?: number) =>
       request<any>('/sessions/clock-out', {
         method: 'POST',
-        body: JSON.stringify({ badgeUid, notes, method }),
+        body: JSON.stringify({ badgeUid, notes, method, proof, issuedAt }),
       }),
     remoteStart: (assignmentId: string, beforePictureUrl?: string, notes?: string) =>
       request<{ message: string; session: ChoreSession }>('/sessions/remote/start', {
@@ -214,6 +226,7 @@ export const api = {
       credentials: 'include',
     });
     if (!res.ok) throw new Error('Photo upload failed');
-    return res.json() as Promise<{ url: string; filename: string }>;
+    const result = await res.json() as { url: string; filename: string };
+    return { ...result, url: new URL(result.url, BASE_URL).toString() };
   },
 };

@@ -1,10 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
+import { createNotification, sendNotificationEmail } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
+import { getNextPaymentDate } from '../utils/paymentSchedule.js';
 
 export const teamRouter = Router();
+
+async function scheduledPaymentDate(team: { id: string; paymentSchedule: string; customPaymentIntervalDays: number | null; customPaymentDay: number | null }) {
+  const currentPeriod = await prisma.paymentPeriod.findFirst({ where: { teamId: team.id, status: 'OPEN' }, orderBy: { endDate: 'asc' } });
+  return currentPeriod?.endDate || getNextPaymentDate(team.paymentSchedule, team.customPaymentIntervalDays, team.customPaymentDay);
+}
 
 // Validation Schemas
 const UpdateTeamSchema = z.object({
@@ -60,7 +67,6 @@ teamRouter.get('/my-team', authenticate, requireRole('BOSS'), async (req: Reques
           orderBy: { minAge: 'asc' },
         },
         invitations: {
-          where: { status: 'PENDING' },
           include: {
             worker: {
               select: { id: true, fullName: true, username: true, avatarUrl: true },
@@ -74,7 +80,7 @@ teamRouter.get('/my-team', authenticate, requireRole('BOSS'), async (req: Reques
       return res.status(404).json({ error: 'Team not found for this Boss.' });
     }
 
-    return res.json(team);
+    return res.json({ ...team, nextPaymentDate: await scheduledPaymentDate(team) });
   } catch (error) {
     console.error('Get My Team Error:', error);
     return res.status(500).json({ error: 'Failed to load team data.' });
@@ -105,6 +111,59 @@ teamRouter.put('/my-team', authenticate, requireRole('BOSS'), async (req: Reques
 /**
  * GET /api/teams/search-workers?q= (Boss only)
  */
+teamRouter.put('/my-team/payment-settings', authenticate, requireRole('BOSS'), async (req, res) => {
+  const schema = z.object({
+    paymentSchedule: z.enum(['WEEKLY_SUNDAY', 'BIWEEKLY', 'MONTHLY', 'CUSTOM']),
+    customPaymentIntervalDays: z.number().int().min(1).max(365).nullable().optional(),
+    customPaymentDay: z.number().int().min(1).max(28).nullable().optional(),
+  }).superRefine((settings, ctx) => {
+    if (settings.paymentSchedule === 'CUSTOM' && !settings.customPaymentIntervalDays && !settings.customPaymentDay) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a custom interval or day of month.' });
+    }
+  });
+  try {
+    const data = schema.parse(req.body);
+    const team = await prisma.team.update({ where: { bossId: req.user!.id }, data: {
+      paymentSchedule: data.paymentSchedule,
+      customPaymentIntervalDays: data.paymentSchedule === 'CUSTOM' ? data.customPaymentIntervalDays || null : null,
+      customPaymentDay: data.paymentSchedule === 'CUSTOM' ? data.customPaymentDay || null : null,
+    } });
+    return res.json({ team, nextPaymentDate: await scheduledPaymentDate(team) });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
+    return res.status(500).json({ error: 'Could not save payment settings.' });
+  }
+});
+
+teamRouter.delete('/my-team/invitations/:invitationId', authenticate, requireRole('BOSS'), async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({ where: { bossId: req.user!.id }, select: { id: true } });
+    if (!team) return res.status(404).json({ error: 'Team not found.' });
+    const invitation = await prisma.teamInvitation.findFirst({ where: { id: String(req.params.invitationId), teamId: team.id, status: 'PENDING' } });
+    if (!invitation) return res.status(404).json({ error: 'Pending invitation not found.' });
+    await prisma.teamInvitation.update({ where: { id: invitation.id }, data: { status: 'CANCELLED' } });
+    return res.json({ message: 'Invitation cancelled.' });
+  } catch { return res.status(500).json({ error: 'Could not cancel invitation.' }); }
+});
+
+teamRouter.get('/my-teams', authenticate, requireRole('WORKER'), async (req, res) => {
+  try {
+    const memberships = await prisma.teamMember.findMany({
+      where: { workerId: req.user!.id, status: 'ACTIVE' },
+      include: { team: { include: { boss: { select: { id: true, fullName: true, username: true, avatarUrl: true } }, members: { where: { status: 'ACTIVE' }, select: { id: true } } } } },
+      orderBy: { joinedAt: 'asc' },
+    });
+    const teams = await Promise.all(memberships.map(async (membership) => {
+      const [balance, unfinishedChores] = await Promise.all([
+        prisma.piggyBankTransaction.aggregate({ where: { workerId: req.user!.id, teamId: membership.teamId }, _sum: { amount: true } }),
+        prisma.choreAssignment.count({ where: { workerId: req.user!.id, status: { in: ['REQUESTED', 'APPROVED', 'ACTIVE'] }, chore: { teamId: membership.teamId } } }),
+      ]);
+      return { ...membership, activeMemberCount: membership.team.members.length, unpaid: (balance._sum.amount || new Prisma.Decimal(0)).toFixed(2), unfinishedChores };
+    }));
+    return res.json(teams);
+  } catch { return res.status(500).json({ error: 'Could not load your teams.' }); }
+});
+
 teamRouter.get('/search-workers', authenticate, requireRole('BOSS'), async (req: Request, res: Response) => {
   try {
     const query = String(req.query.q || '').trim();
@@ -217,7 +276,7 @@ teamRouter.post('/invite-worker', authenticate, requireRole('BOSS'), async (req:
     });
 
     // Create notification for worker
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: worker.id,
         teamId: team.id,
@@ -225,6 +284,7 @@ teamRouter.post('/invite-worker', authenticate, requireRole('BOSS'), async (req:
         title: 'New Team Invitation',
         message: `You were invited to join "${team.name}" by ${req.user!.username}.`,
         linkUrl: '/worker/teams',
+        referenceType: 'invitation', referenceId: invitation.id,
       },
     });
 
@@ -344,7 +404,7 @@ teamRouter.post('/:teamId/request-join', authenticate, requireRole('WORKER'), as
     });
 
     // Notify Boss
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: team.bossId,
         teamId: team.id,
@@ -352,6 +412,7 @@ teamRouter.post('/:teamId/request-join', authenticate, requireRole('WORKER'), as
         title: 'New Join Request',
         message: `${req.user!.username} requested to join your team "${team.name}".`,
         linkUrl: '/boss/workers',
+        referenceType: 'invitation', referenceId: invitation.id,
       },
     });
 
@@ -370,6 +431,7 @@ teamRouter.get('/invitations', authenticate, requireRole('WORKER'), async (req: 
       where: {
         workerId: req.user!.id,
         status: 'PENDING',
+        type: 'BOSS_INVITE',
       },
       include: {
         team: {
@@ -406,12 +468,15 @@ teamRouter.post('/invitations/:invitationId/respond', authenticate, requireRole(
       return res.status(404).json({ error: 'Invitation not found or unauthorized.' });
     }
 
-    if (invite.status !== 'PENDING') {
+    if (invite.status !== 'PENDING' || invite.type !== 'BOSS_INVITE') {
       return res.status(400).json({ error: 'This invitation has already been processed.' });
     }
 
+    const existingMembership = await prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: invite.teamId, workerId: req.user!.id } } });
+    if (existingMembership?.status === 'ACTIVE') return res.status(409).json({ error: 'You are already an active member of this team.' });
+
     if (action === 'ACCEPT') {
-      await prisma.$transaction(async (tx) => {
+      const notification = await prisma.$transaction(async (tx) => {
         await tx.teamInvitation.update({
           where: { id: invitationId },
           data: { status: 'ACCEPTED' },
@@ -435,7 +500,7 @@ teamRouter.post('/invitations/:invitationId/respond', authenticate, requireRole(
         });
 
         // Notify Boss
-        await tx.notification.create({
+        return tx.notification.create({
           data: {
             userId: invite.team.bossId,
             teamId: invite.teamId,
@@ -443,17 +508,23 @@ teamRouter.post('/invitations/:invitationId/respond', authenticate, requireRole(
             title: 'Invitation Accepted',
             message: `${req.user!.username} joined your team "${invite.team.name}".`,
             linkUrl: '/boss/workers',
+            referenceType: 'invitation', referenceId: invitationId,
           },
         });
       });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: 'You have joined the team successfully!' });
     } else {
-      await prisma.teamInvitation.update({
-        where: { id: invitationId },
-        data: { status: 'REJECTED' },
+      const notification = await prisma.$transaction(async (tx) => {
+        await tx.teamInvitation.update({ where: { id: invitationId }, data: { status: 'REJECTED' } });
+        return tx.notification.create({ data: {
+          userId: invite.team.bossId, teamId: invite.teamId, type: 'INVITATION',
+          title: 'Team invitation declined', message: `${req.user!.username} declined the invitation to ${invite.team.name}.`,
+          linkUrl: '/teams', referenceType: 'invitation', referenceId: invitationId,
+        } });
       });
-
+      await sendNotificationEmail(notification.id);
       return res.json({ message: 'Invitation declined.' });
     }
   } catch (error: any) {
@@ -494,7 +565,7 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
     }
 
     if (action === 'ACCEPT') {
-      await prisma.$transaction(async (tx) => {
+      const notification = await prisma.$transaction(async (tx) => {
         await tx.teamInvitation.update({
           where: { id: invitationId },
           data: { status: 'ACCEPTED' },
@@ -518,7 +589,7 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
         });
 
         // Notify Worker
-        await tx.notification.create({
+        return tx.notification.create({
           data: {
             userId: invite.workerId,
             teamId: team.id,
@@ -526,9 +597,11 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
             title: 'Join Request Approved!',
             message: `Boss ${req.user!.username} approved your request to join "${team.name}".`,
             linkUrl: '/worker/teams',
+            referenceType: 'invitation', referenceId: invitationId,
           },
         });
       });
+      await sendNotificationEmail(notification.id);
 
       return res.json({ message: `${invite.worker.fullName} is now an active member of your team.` });
     } else {
@@ -538,7 +611,7 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
       });
 
       // Notify Worker
-      await prisma.notification.create({
+      await createNotification({
         data: {
           userId: invite.workerId,
           teamId: team.id,
@@ -546,6 +619,7 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
           title: 'Join Request Declined',
           message: `Your request to join "${team.name}" was declined.`,
           linkUrl: '/worker/teams',
+          referenceType: 'invitation', referenceId: invitationId,
         },
       });
 
@@ -593,7 +667,7 @@ teamRouter.delete('/my-team/members/:workerId', authenticate, requireRole('BOSS'
       data: { status: 'LEFT' },
     });
 
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: workerId,
         teamId: team.id,
@@ -601,6 +675,7 @@ teamRouter.delete('/my-team/members/:workerId', authenticate, requireRole('BOSS'
         title: 'Team Membership Updated',
         message: `You have been removed from team "${team.name}".`,
         linkUrl: '/worker/teams',
+        referenceType: 'team', referenceId: team.id,
       },
     });
 
@@ -637,7 +712,7 @@ teamRouter.post('/:teamId/leave', authenticate, requireRole('WORKER'), async (re
     });
 
     // Notify Boss
-    await prisma.notification.create({
+    await createNotification({
       data: {
         userId: member.team.bossId,
         teamId,
@@ -645,6 +720,7 @@ teamRouter.post('/:teamId/leave', authenticate, requireRole('WORKER'), async (re
         title: 'Worker Left Team',
         message: `${req.user!.username} has left team "${member.team.name}".`,
         linkUrl: '/boss/workers',
+        referenceType: 'team', referenceId: teamId,
       },
     });
 

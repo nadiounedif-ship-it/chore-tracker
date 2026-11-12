@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { formatCurrency } from '../../lib/utils';
@@ -22,13 +22,14 @@ import {
   Upload,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export const BossDashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, dashboardTab, setDashboardTab } = useAuth();
   const queryClient = useQueryClient();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'scanner' | 'payouts' | 'workers' | 'rates'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping'>('overview');
 
   // Modals
   const [showCreateChore, setShowCreateChore] = useState(false);
@@ -40,7 +41,15 @@ export const BossDashboard: React.FC = () => {
   const { data: teamData, isLoading: loadingTeam } = useQuery({
     queryKey: ['myTeam'],
     queryFn: () => api.teams.getMyTeam(),
+    refetchInterval: 10000,
   });
+
+  useEffect(() => {
+    if (dashboardTab && ['overview', 'chores', 'scanner', 'payouts', 'workers', 'rates', 'shopping'].includes(dashboardTab)) {
+      setActiveTab(dashboardTab as any);
+      setDashboardTab(null);
+    }
+  }, [dashboardTab, setDashboardTab]);
 
   const { data: choresData } = useQuery({
     queryKey: ['myTeamChores'],
@@ -57,20 +66,30 @@ export const BossDashboard: React.FC = () => {
     queryFn: () => api.sessions.getActive(),
     refetchInterval: 5000,
   });
+  const { data: shoppingItems } = useQuery({ queryKey: ['bossShopping'], queryFn: () => api.shopping.list(), enabled: activeTab === 'shopping' });
 
   // Scanner & Clock-in Form State
   const [scannedUid, setScannedUid] = useState('');
+  const [badgeProof, setBadgeProof] = useState<string>();
+  const [badgeIssuedAt, setBadgeIssuedAt] = useState<number>();
+  const [scanMethod, setScanMethod] = useState<'NFC' | 'QR' | 'MANUAL'>('MANUAL');
+  const [identifiedWorker, setIdentifiedWorker] = useState<any>(null);
+  const [nfcError, setNfcError] = useState('');
+  const [cameraScanning, setCameraScanning] = useState(false);
+  const nfcController = useRef<AbortController | null>(null);
+  const qrReader = useRef<Html5Qrcode | null>(null);
   const [selectedChoreId, setSelectedChoreId] = useState('');
   const [clockMessage, setClockMessage] = useState<string | null>(null);
   const [clockError, setClockError] = useState<string | null>(null);
 
   // Mutations
   const clockInMutation = useMutation({
-    mutationFn: () => api.sessions.clockIn(scannedUid, selectedChoreId, 'MANUAL'),
+    mutationFn: () => api.sessions.clockIn(scannedUid, selectedChoreId, scanMethod, badgeProof, badgeIssuedAt),
     onSuccess: (res) => {
       setClockMessage(res.message);
       setClockError(null);
       setScannedUid('');
+      setIdentifiedWorker(null);
       queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
       queryClient.invalidateQueries({ queryKey: ['myTeamChores'] });
     },
@@ -81,11 +100,12 @@ export const BossDashboard: React.FC = () => {
   });
 
   const clockOutMutation = useMutation({
-    mutationFn: () => api.sessions.clockOut(scannedUid, undefined, 'MANUAL'),
+    mutationFn: () => api.sessions.clockOut(scannedUid, undefined, scanMethod, badgeProof, badgeIssuedAt),
     onSuccess: (res) => {
       setClockMessage(res.message);
       setClockError(null);
       setScannedUid('');
+      setIdentifiedWorker(null);
       queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
       queryClient.invalidateQueries({ queryKey: ['teamFinances'] });
       queryClient.invalidateQueries({ queryKey: ['myTeamChores'] });
@@ -95,6 +115,53 @@ export const BossDashboard: React.FC = () => {
       setClockMessage(null);
     },
   });
+
+  const identifyMutation = useMutation({
+    mutationFn: () => api.sessions.identifyBadge(scannedUid, badgeProof, badgeIssuedAt),
+    onSuccess: (result) => {
+      setIdentifiedWorker(result);
+      setClockError('');
+      setClockMessage('Worker verified for your team. Review the chore and confirm the action.');
+      if (result.assignments?.length === 1) setSelectedChoreId(result.assignments[0].chore.id);
+    },
+    onError: (err: any) => { setIdentifiedWorker(null); setClockError(err.message); },
+  });
+
+  const startNfcScan = async () => {
+    setNfcError('');
+    if (!('NDEFReader' in window)) { setNfcError('NFC scanning requires a compatible Android phone, Chrome, and a secure HTTPS connection. Use QR scanning or enter the badge code instead.'); return; }
+    try {
+      const controller = new AbortController(); nfcController.current = controller;
+      const reader = new (window as any).NDEFReader();
+      await reader.scan({ signal: controller.signal });
+      reader.onreading = (event: any) => {
+        if (!event.serialNumber) { setNfcError('This NFC tag did not provide a readable serial number.'); return; }
+        setScannedUid(String(event.serialNumber).toUpperCase()); setBadgeProof(undefined); setBadgeIssuedAt(undefined); setScanMethod('NFC');
+        controller.abort(); nfcController.current = null; setNfcError('');
+      };
+    } catch (err: any) { setNfcError(err.message || 'Could not start NFC scanning. Check browser permission and NFC settings.'); }
+  };
+
+  useEffect(() => {
+    if (!cameraScanning) return;
+    const reader = new Html5Qrcode('boss-qr-reader'); qrReader.current = reader;
+    reader.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } }, async (decoded) => {
+      try {
+        const payload = JSON.parse(decoded);
+        if (payload.type !== 'CHORE_MANAGER_BADGE' || !payload.badgeUid) throw new Error('This is not a Chore Manager badge.');
+        setScannedUid(payload.badgeUid); setBadgeProof(payload.proof); setBadgeIssuedAt(payload.issuedAt); setScanMethod('QR'); setCameraScanning(false);
+      } catch (err: any) { setClockError(err.message || 'Could not read this badge.'); setCameraScanning(false); }
+    }, () => {}).catch((err) => { setClockError(`Camera could not start: ${err}`); setCameraScanning(false); });
+    return () => {
+      const activeReader = qrReader.current;
+      qrReader.current = null;
+      if (!activeReader) return;
+      const stopCamera = activeReader.isScanning ? activeReader.stop().catch(() => {}) : Promise.resolve();
+      void stopCamera.then(() => activeReader.clear()).catch(() => {});
+    };
+  }, [cameraScanning]);
+
+  useEffect(() => () => { nfcController.current?.abort(); }, []);
 
   const reviewSessionMutation = useMutation({
     mutationFn: ({ id, approved, reason }: { id: string; approved: boolean; reason?: string }) =>
@@ -123,24 +190,32 @@ export const BossDashboard: React.FC = () => {
       alert(err.message || 'Failed to delete chore.');
     },
   });
+  const respondRequestMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'APPROVE' | 'REJECT' }) => api.chores.respondChoreRequest(id, action),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['myTeamChores'] }),
+  });
+  const shoppingStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'APPROVED' | 'PURCHASED' | 'REJECTED' }) => api.shopping.updateStatus(id, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bossShopping'] }),
+  });
 
   // Calculate Metrics
   const activeMembersCount = teamData?.members?.filter((m) => m.status === 'ACTIVE').length || 0;
-  const pendingRequests = choresData?.flatMap((c) => c.assignments || []).filter((a) => a.status === 'REQUESTED') || [];
-  const awaitingReviewSessions = choresData?.flatMap((c) => (c.assignments || []).flatMap((a) => a.sessions || [])).filter((s: any) => s.status === 'SUBMITTED') || [];
+  const pendingRequests = choresData?.flatMap((chore) => (chore.assignments || []).filter((a) => a.status === 'REQUESTED').map((a) => ({ ...a, choreTitle: chore.title, choreId: chore.id }))) || [];
+  const awaitingReviewSessions = choresData?.flatMap((chore) => (chore.assignments || []).flatMap((a) => (a.sessions || []).filter((s: any) => s.status === 'SUBMITTED').map((s: any) => ({ ...s, choreTitle: chore.title, choreId: chore.id, workerName: a.worker?.fullName || 'Worker' })))) || [];
   const totalUnpaid = financeData?.totalUnpaid || '0.00';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Team Header Banner */}
-      <div className="bg-gradient-to-r from-purple-900 via-purple-800 to-indigo-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-800 via-orange-700 to-rose-700 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="bg-purple-500/30 text-purple-200 border border-purple-400/30 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
                 👑 Boss Dashboard
               </span>
-              <span className="text-purple-300 text-xs font-medium">Payment: {teamData?.paymentSchedule || 'Weekly'}</span>
+              <span className="text-purple-300 text-xs font-medium">Payment: {teamData?.paymentSchedule || 'Weekly'} · Next: {teamData?.nextPaymentDate ? new Date(teamData.nextPaymentDate).toLocaleDateString() : '—'}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               {teamData?.name || 'My Team'}
@@ -178,6 +253,7 @@ export const BossDashboard: React.FC = () => {
           { id: 'payouts', label: `💰 Piggy Bank & Payouts (${formatCurrency(totalUnpaid)})` },
           { id: 'workers', label: `👥 Workers (${activeMembersCount})` },
           { id: 'rates', label: '⚙️ Salary Brackets' },
+          { id: 'shopping', label: '🛒 To Buy' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -311,7 +387,7 @@ export const BossDashboard: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {choresData?.map((chore) => (
-              <div key={chore.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between overflow-hidden">
+              <div key={chore.id} id={`reference-chore-${chore.id}`} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between overflow-hidden">
                 <div>
                   {/* Chore Picture if available */}
                   {chore.pictures && chore.pictures.length > 0 && (
@@ -345,9 +421,18 @@ export const BossDashboard: React.FC = () => {
                     </span>
                   )}
                 </div>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-500">{chore.assignments?.some((a) => a.sessions?.length) || chore.status === 'COMPLETED' || chore.status === 'IN_PROGRESS' ? 'Work has started or finished. Its history must be preserved.' : chore.assignments?.length ? 'A worker has requested or been assigned this chore.' : ''}</span>
+                  <button type="button" disabled={!!chore.assignments?.length || !['OPEN', 'CANCELLED'].includes(chore.status) || deleteChoreMutation.isPending} onClick={() => { if (window.confirm(`Delete “${chore.title}”? This cannot be undone.`)) deleteChoreMutation.mutate(chore.id); }} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed">Delete chore</button>
+                </div>
               </div>
             ))}
           </div>
+
+          {pendingRequests.length > 0 && <section className="bg-white rounded-2xl border border-amber-100 p-5 space-y-3"><h3 className="font-bold text-lg">Chore requests ({pendingRequests.length})</h3>{pendingRequests.map((request: any) => <div key={request.id} id={`reference-chore-${request.choreId}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t pt-3"><div><div className="font-bold">{request.worker?.fullName || 'Worker'} asked to do {request.choreTitle}</div><div className="text-xs text-slate-500">Requested {new Date(request.requestedAt).toLocaleDateString()}</div></div><div className="flex gap-2"><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'APPROVE' })} className="rounded-lg bg-emerald-50 text-emerald-800 px-3 py-2 text-xs font-bold">Approve</button><button disabled={respondRequestMutation.isPending} onClick={() => respondRequestMutation.mutate({ id: request.id, action: 'REJECT' })} className="rounded-lg bg-rose-50 text-rose-800 px-3 py-2 text-xs font-bold">Decline</button></div></div>)}</section>}
+
+          {awaitingReviewSessions.length > 0 && <section className="bg-white rounded-2xl border border-sky-100 p-5 space-y-4"><h3 className="font-bold text-lg">Finished chores to review ({awaitingReviewSessions.length})</h3>{awaitingReviewSessions.map((session: any) => <article key={session.id} id={`reference-session-${session.id}`} className="border-t pt-4 space-y-3"><div><div className="font-bold">{session.workerName} · {session.choreTitle}</div><div className="text-xs text-slate-500">Work time: {Math.floor((session.durationSeconds || 0) / 60)} minutes · submitted {new Date(session.clockOutAt || session.clockInAt).toLocaleString()}</div></div><div className="flex flex-wrap gap-3">{session.beforePictureUrl && <a href={session.beforePictureUrl} target="_blank" rel="noreferrer"><img src={session.beforePictureUrl} alt="Before" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">Before</span></a>}{session.afterPictureUrl && <a href={session.afterPictureUrl} target="_blank" rel="noreferrer"><img src={session.afterPictureUrl} alt="After" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">After</span></a>}</div><div className="flex gap-2"><button disabled={reviewSessionMutation.isPending} onClick={() => reviewSessionMutation.mutate({ id: session.id, approved: true })} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-bold">Approve and credit</button><button disabled={reviewSessionMutation.isPending} onClick={() => { const reason = window.prompt('What should the worker fix before resubmitting?'); if (reason?.trim()) reviewSessionMutation.mutate({ id: session.id, approved: false, reason: reason.trim() }); }} className="rounded-xl bg-rose-50 text-rose-800 px-4 py-2 text-sm font-bold">Ask for changes</button></div></article>)}</section>}
+
         </div>
       )}
 
@@ -376,6 +461,14 @@ export const BossDashboard: React.FC = () => {
             </div>
           )}
 
+          {nfcError && <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs">{nfcError}</div>}
+
+          <div className="flex flex-wrap justify-center gap-2">
+            <button onClick={startNfcScan} className="rounded-xl bg-emerald-100 text-emerald-900 px-4 py-2 font-bold text-sm">📡 Scan NFC badge</button>
+            <button onClick={() => setCameraScanning((value) => !value)} className="rounded-xl bg-sky-100 text-sky-900 px-4 py-2 font-bold text-sm">{cameraScanning ? 'Stop camera' : '📷 Scan QR badge'}</button>
+          </div>
+          {cameraScanning && <div id="boss-qr-reader" className="max-w-sm mx-auto overflow-hidden rounded-2xl" />}
+
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -384,7 +477,7 @@ export const BossDashboard: React.FC = () => {
               <input
                 type="text"
                 value={scannedUid}
-                onChange={(e) => setScannedUid(e.target.value)}
+                onChange={(e) => { setScannedUid(e.target.value); setBadgeProof(undefined); setBadgeIssuedAt(undefined); setScanMethod('MANUAL'); setIdentifiedWorker(null); }}
                 placeholder="e.g. NFC-LUCAS-001 or NFC-EMMA-002"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-hidden focus:border-purple-500"
               />
@@ -392,6 +485,9 @@ export const BossDashboard: React.FC = () => {
                 Tip: Lucas's badge is <code className="bg-slate-100 px-1 py-0.5 rounded">NFC-LUCAS-001</code>; Emma's is <code className="bg-slate-100 px-1 py-0.5 rounded">NFC-EMMA-002</code>
               </p>
             </div>
+
+            <button type="button" onClick={() => identifyMutation.mutate()} disabled={!scannedUid || identifyMutation.isPending} className="w-full rounded-xl bg-purple-100 text-purple-900 py-2.5 font-bold disabled:opacity-40">{identifyMutation.isPending ? 'Checking team membership…' : 'Identify worker and approved chores'}</button>
+            {identifiedWorker && <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm"><div className="font-bold text-emerald-900">{identifiedWorker.worker.fullName} <span className="font-normal">(@{identifiedWorker.worker.username})</span></div><div className="text-xs text-emerald-800 mt-1">Active team member · {identifiedWorker.assignments.length} approved chore(s) available</div>{identifiedWorker.activeSession && <div className="mt-2 font-semibold">Currently working: {identifiedWorker.activeSession.assignment.chore.title}</div>}</div>}
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -403,10 +499,8 @@ export const BossDashboard: React.FC = () => {
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:border-purple-500"
               >
                 <option value="">-- Choose Chore --</option>
-                {choresData?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title} ({c.paymentType === 'FIXED' ? formatCurrency(c.fixedAmount) : 'Hourly'})
-                  </option>
+                {identifiedWorker?.assignments?.map((a: any) => (
+                  <option key={a.chore.id} value={a.chore.id}>{a.chore.title} ({a.chore.paymentType === 'FIXED' ? formatCurrency(a.chore.fixedAmount) : 'Hourly'})</option>
                 ))}
               </select>
             </div>
@@ -415,7 +509,7 @@ export const BossDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => clockInMutation.mutate()}
-                disabled={!scannedUid || !selectedChoreId || clockInMutation.isPending}
+                disabled={!identifiedWorker || !selectedChoreId || !identifiedWorker.assignments.some((a: any) => a.chore.id === selectedChoreId) || clockInMutation.isPending}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all cursor-pointer disabled:opacity-50 text-sm flex items-center justify-center gap-1 shadow-md shadow-emerald-600/20"
               >
                 ▶️ Confirm Clock In
@@ -424,7 +518,7 @@ export const BossDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => clockOutMutation.mutate()}
-                disabled={!scannedUid || clockOutMutation.isPending}
+                disabled={!identifiedWorker?.activeSession || clockOutMutation.isPending}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl transition-all cursor-pointer disabled:opacity-50 text-sm flex items-center justify-center gap-1 shadow-md shadow-purple-600/20"
               >
                 ⏹️ Confirm Clock Out
@@ -433,6 +527,8 @@ export const BossDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {activeTab === 'shopping' && <div className="bg-white rounded-3xl border border-orange-100 p-6 space-y-4"><div><h2 className="text-xl font-bold">Family To Buy list</h2><p className="text-sm text-slate-500">Supply requests from your team.</p></div>{shoppingItems?.length ? shoppingItems.map((item: any) => <div key={item.id} id={`reference-shopping-${item.id}`} className="border-t border-slate-100 pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><div className="font-bold">{item.productName}</div><div className="text-xs text-slate-500">Requested by {item.worker.fullName} · {new Date(item.createdAt).toLocaleDateString()} · {item.status}</div>{item.description && <p className="text-sm text-slate-600">{item.description}</p>}</div><div className="flex gap-2">{item.status === 'PENDING' && <button onClick={() => shoppingStatusMutation.mutate({ id: item.id, status: 'APPROVED' })} className="rounded-lg bg-sky-50 text-sky-800 px-3 py-2 text-xs font-bold">Approve</button>}{['PENDING', 'APPROVED'].includes(item.status) && <button onClick={() => shoppingStatusMutation.mutate({ id: item.id, status: 'PURCHASED' })} className="rounded-lg bg-emerald-50 text-emerald-800 px-3 py-2 text-xs font-bold">Mark purchased</button>}{item.status === 'PENDING' && <button onClick={() => shoppingStatusMutation.mutate({ id: item.id, status: 'REJECTED' })} className="rounded-lg bg-rose-50 text-rose-800 px-3 py-2 text-xs font-bold">Decline</button>}</div></div>) : <div className="py-12 text-center text-slate-500">No supply requests yet.</div>}</div>}
 
       {/* TAB: PAYOUTS & PIGGY BANK */}
       {activeTab === 'payouts' && (
@@ -519,11 +615,19 @@ export const BossDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
-                  {m.status}
-                </span>
+                <div className="flex flex-col items-end gap-2"><span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">{m.status}</span>
+                  {m.worker.nfcBadge && <button onClick={async () => { const candidates = teamData?.members?.filter((candidate: any) => candidate.status === 'ACTIVE' && candidate.worker.id !== m.worker.id && !candidate.worker.nfcBadge) || []; if (!candidates.length) { alert('There is no active team member without an existing badge.'); return; } const names = candidates.map((candidate: any) => `${candidate.worker.fullName} (@${candidate.worker.username})`).join(', '); const username = window.prompt(`Transfer badge ${m.worker.nfcBadge.badgeUid} to one of these active team members: ${names}`, candidates[0]?.worker?.username || ''); const target = candidates.find((candidate: any) => candidate.worker?.username?.toLowerCase() === username?.trim().replace(/^@/, '').toLowerCase()); if (!target?.worker) { if (username) alert('Choose a username from the listed team members.'); return; } if (!window.confirm(`Transfer this badge from ${m.worker.fullName} to ${target.worker.fullName}? This change will be recorded in the team activity log.`)) return; try { await api.sessions.reassignBadge(m.worker.nfcBadge.badgeUid, target.worker.id); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message || 'Badge transfer failed.'); } }} className="text-[10px] font-bold rounded-lg bg-amber-50 text-amber-900 px-2 py-1">Transfer badge</button>}
+                </div>
               </div>
             ))}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-orange-100 p-5 space-y-3">
+            <h3 className="font-bold text-slate-900">Team Invitations</h3>
+            {!teamData?.invitations?.length ? <p className="text-sm text-slate-500">No invitations have been sent yet.</p> : teamData.invitations.map((invitation: any) => <div key={invitation.id} id={`reference-invitation-${invitation.id}`} className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+              <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center">{invitation.worker.avatarUrl ? <img src={invitation.worker.avatarUrl} className="w-full h-full object-cover" /> : invitation.worker.fullName[0]}</div><div><div className="font-bold text-sm">{invitation.worker.fullName} <span className="text-xs text-slate-400">@{invitation.worker.username}</span></div><div className="text-xs text-slate-500">Sent {new Date(invitation.createdAt).toLocaleDateString()} · {invitation.message || 'No message'}</div></div></div>
+              <div className="flex items-center gap-2"><span className={`text-xs font-bold rounded-full px-3 py-1 ${invitation.status === 'PENDING' ? 'bg-amber-50 text-amber-800' : invitation.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{invitation.status}</span>{invitation.status === 'PENDING' && <button onClick={async () => { try { await api.teams.cancelInvitation(invitation.id); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message); } }} className="text-xs font-semibold text-rose-700">Cancel</button>}{['REJECTED', 'CANCELLED'].includes(invitation.status) && <button onClick={async () => { const identifier = window.prompt('Worker email or username to invite again:', invitation.worker.username); if (!identifier) return; try { await api.teams.inviteWorker(identifier); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message); } }} className="text-xs font-semibold text-emerald-700">Resend</button>}</div>
+            </div>)}
           </div>
         </div>
       )}

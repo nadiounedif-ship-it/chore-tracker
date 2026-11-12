@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
+import { getNextPaymentDate, getPeriodStart } from '../utils/paymentSchedule.js';
+import { sendNotificationEmail } from '../utils/notifications.js';
 
 export const piggybankRouter = Router();
 
@@ -245,12 +247,19 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
     const worker = await prisma.user.findUnique({
       where: { id: data.workerId },
     });
+    const payAmount = new Prisma.Decimal(data.amount.toFixed(2));
 
     if (!worker) {
       return res.status(404).json({ error: 'Worker not found.' });
     }
 
-    const payAmount = new Prisma.Decimal(data.amount.toFixed(2));
+    if (worker.role !== 'WORKER') return res.status(400).json({ error: 'Payments can only be made to worker accounts.' });
+    const membership = await prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId: worker.id } } });
+    if (!membership) return res.status(403).json({ error: 'This worker has no history with your team.' });
+    const balance = await prisma.piggyBankTransaction.aggregate({ where: { workerId: worker.id, teamId: team.id }, _sum: { amount: true } });
+    const unpaid = balance._sum.amount || new Prisma.Decimal(0);
+    if (payAmount.gt(unpaid)) return res.status(400).json({ error: `Payment exceeds the team balance of ${unpaid.toFixed(2)} €.` });
+
     const negativePayout = payAmount.negated();
 
     // Ensure payment period exists
@@ -259,14 +268,23 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
       orderBy: { createdAt: 'desc' },
     });
 
+    const now = new Date();
+    if (period && period.endDate <= now) {
+      await prisma.paymentPeriod.update({ where: { id: period.id }, data: { status: 'CLOSED', closedAt: now } });
+      period = null;
+    }
+
     if (!period) {
-      const now = new Date();
+      const scheduledEnd = getNextPaymentDate(team.paymentSchedule, team.customPaymentIntervalDays, team.customPaymentDay, now);
       period = await prisma.paymentPeriod.create({
         data: {
           teamId: team.id,
-          startDate: now,
-          endDate: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+          startDate: getPeriodStart(team.paymentSchedule, team.customPaymentIntervalDays, team.customPaymentDay, scheduledEnd),
+          endDate: scheduledEnd,
           status: 'OPEN',
+          schedule: team.paymentSchedule,
+          customPaymentIntervalDays: team.customPaymentIntervalDays,
+          customPaymentDay: team.customPaymentDay,
         },
       });
     }
@@ -297,7 +315,7 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
       });
 
       // 3. Notify worker
-      await tx.notification.create({
+      const notification = await tx.notification.create({
         data: {
           userId: worker.id,
           teamId: team.id,
@@ -305,11 +323,13 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
           title: 'Payment Received!',
           message: `Boss ${req.user!.username} paid you ${payAmount.toString().replace('.', ',')} € for team "${team.name}".`,
           linkUrl: '/worker/piggy-bank',
+          referenceType: 'payment', referenceId: transaction.id,
         },
       });
 
-      return { payment, transaction };
+      return { payment, transaction, notification };
     });
+    await sendNotificationEmail(result.notification.id);
 
     return res.status(201).json({
       message: `Recorded payment of ${payAmount.toString().replace('.', ',')} € to ${worker.fullName}.`,

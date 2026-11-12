@@ -10,6 +10,8 @@ export interface User {
   role: UserRole;
   status: 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
   createdAt: string;
+  emailVerified?: boolean;
+  emailNotificationPreferences?: { enabled: boolean; categories: string[] };
   ownedTeam?: Team | null;
   teamMemberships?: TeamMember[];
 }
@@ -20,6 +22,9 @@ export interface Team {
   description?: string | null;
   avatarUrl?: string | null;
   paymentSchedule: 'WEEKLY_SUNDAY' | 'BIWEEKLY' | 'MONTHLY' | 'CUSTOM';
+  customPaymentIntervalDays?: number | null;
+  customPaymentDay?: number | null;
+  nextPaymentDate?: string;
   bossId: string;
   boss?: User;
   members?: TeamMember[];

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 import { Sparkles, Shield, User as UserIcon, Calendar, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
@@ -18,6 +19,14 @@ export const AuthPage: React.FC = () => {
   const [teamDescription, setTeamDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('verify-email');
+    if (!token) return;
+    api.auth.verifyEmail(token).then((result) => setError(result.message)).catch((err: any) => setError(err.message || 'Email verification failed.')).finally(() => {
+      const url = new URL(window.location.href); url.searchParams.delete('verify-email'); window.history.replaceState({}, '', url.toString());
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

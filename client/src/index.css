@@ -4,14 +4,22 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 36 100% 98%;
+    --foreground: 24 12% 15%;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 font-sans;
+    @apply bg-[#fffaf4] text-slate-900 font-sans;
     -webkit-tap-highlight-color: transparent;
   }
+
+  button, input, select, textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+button, a, input, select, textarea {
+  transition-duration: 160ms;
 }
 
 /* Smooth transitions & custom scrollbar */

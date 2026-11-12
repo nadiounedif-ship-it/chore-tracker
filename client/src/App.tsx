@@ -5,6 +5,8 @@ import { Header } from './components/Header';
 import { AuthPage } from './pages/AuthPage';
 import { BossDashboard } from './pages/boss/BossDashboard';
 import { WorkerDashboard } from './pages/worker/WorkerDashboard';
+import { ProfilePage } from './pages/ProfilePage';
+import { MyTeamsPage } from './pages/worker/MyTeamsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,7 +18,7 @@ const queryClient = new QueryClient({
 });
 
 const AppContent: React.FC = () => {
-  const { user, role, loading } = useAuth();
+  const { user, role, loading, activePage } = useAuth();
 
   if (loading) {
     return (
@@ -37,7 +39,7 @@ const AppContent: React.FC = () => {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Header />
       <main className="flex-1 pb-16">
-        {role === 'BOSS' ? <BossDashboard /> : <WorkerDashboard />}
+        {activePage === 'profile' ? <ProfilePage /> : activePage === 'teams' && role === 'WORKER' ? <MyTeamsPage /> : role === 'BOSS' ? <BossDashboard /> : <WorkerDashboard />}
       </main>
     </div>
   );

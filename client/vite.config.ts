@@ -8,27 +8,36 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
         name: 'Chore Manager',
         short_name: 'Chores',
         description: 'Family Chore Distribution and Payment Management Platform',
-        theme_color: '#3b82f6',
-        background_color: '#f8fafc',
+        theme_color: '#f2a65a',
+        background_color: '#fffaf1',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: '/chore-manager.svg',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
           },
           {
-            src: '/pwa-512x512.png',
+            src: '/chore-manager.svg',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
           }
         ]
+      },
+      workbox: {
+        navigateFallback: '/index.html',
+        runtimeCaching: [{
+          urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+          handler: 'NetworkOnly',
+          method: 'GET',
+        }],
       }
     })
   ],

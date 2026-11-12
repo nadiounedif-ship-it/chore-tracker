@@ -8,6 +8,10 @@ interface AuthContextType {
   loading: boolean;
   activeTeamId: string; // 'ALL' or a specific teamId
   setActiveTeamId: (id: string) => void;
+  activePage: 'dashboard' | 'teams' | 'profile';
+  setActivePage: (page: 'dashboard' | 'teams' | 'profile') => void;
+  dashboardTab: string | null;
+  setDashboardTab: (tab: string | null) => void;
   login: (identifier: string, password: string) => Promise<void>;
   registerBoss: (data: any) => Promise<void>;
   registerWorker: (data: any) => Promise<void>;
@@ -21,6 +25,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTeamId, setActiveTeamId] = useState<string>('ALL');
+  const [activePage, setActivePage] = useState<'dashboard' | 'teams' | 'profile'>('dashboard');
+  const [dashboardTab, setDashboardTab] = useState<string | null>(null);
 
   const refreshUser = async () => {
     try {
@@ -41,11 +47,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await api.auth.login(identifier, password);
     setUser(res.user);
     setActiveTeamId('ALL');
+    setActivePage('dashboard');
   };
 
   const registerBoss = async (data: any) => {
     const res = await api.auth.registerBoss(data);
     setUser(res.user);
+    setActivePage('dashboard');
   };
 
   const registerWorker = async (data: any) => {
@@ -60,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setUser(null);
       setActiveTeamId('ALL');
+      setActivePage('dashboard');
     }
   };
 
@@ -71,6 +80,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         activeTeamId,
         setActiveTeamId,
+        activePage,
+        setActivePage,
+        dashboardTab,
+        setDashboardTab,
         login,
         registerBoss,
         registerWorker,
