@@ -121,17 +121,20 @@ export const Header: React.FC = () => {
         )}
 
         {/* User Actions & Notifications */}
-        <div className="flex items-center gap-2 relative">
+        <div className="ml-auto flex items-center gap-1 sm:gap-2 relative">
           <button type="button" onClick={() => setShowNavigation((open) => !open)} aria-label={showNavigation ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={showNavigation} className="p-2 rounded-xl text-slate-700 hover:bg-amber-50" title="Navigation">
             {showNavigation ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
-          {showNavigation && <nav aria-label="Main navigation" className="absolute right-0 top-12 w-64 max-h-[75vh] overflow-y-auto bg-white rounded-2xl shadow-xl border border-orange-100 p-2 z-50">
-            <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Menu</div>
+          {showNavigation && <>
+            <button type="button" aria-label="Close navigation menu" onClick={() => setShowNavigation(false)} className="fixed inset-0 z-[45] cursor-default bg-slate-950/20 md:bg-transparent" />
+            <nav aria-label="Main navigation" className="fixed left-3 right-3 top-[4.5rem] mx-auto w-auto max-w-md max-h-[calc(100dvh-5.25rem)] overflow-y-auto overscroll-contain bg-white rounded-2xl shadow-2xl border border-orange-100 p-2 z-[50] md:absolute md:left-auto md:right-0 md:top-12 md:mx-0 md:w-72 md:max-h-[75vh]">
+            <div className="sticky top-0 bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Menu</div>
             {role === 'WORKER' && user?.teamMemberships && user.teamMemberships.length > 0 && <label className="block px-3 pb-2 sm:hidden"><span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-400">Current team</span><select aria-label="Choose current team" value={activeTeamId} onChange={(event) => { setActiveTeamId(event.target.value); setShowNavigation(false); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"><option value="ALL">All Teams</option>{user.teamMemberships.map((membership) => <option key={membership.teamId} value={membership.teamId}>{membership.team?.name || 'Team'}</option>)}</select></label>}
             {dashboardLinks.map((link) => <button key={link.id} onClick={() => navigateDashboard(link.id)} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">{link.label}</button>)}
             {role === 'WORKER' && <button onClick={() => { setActivePage('teams'); setShowNavigation(false); }} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">My Teams</button>}
             <button onClick={() => { setActivePage('profile'); setShowNavigation(false); }} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-amber-50">Profile & settings</button>
-          </nav>}
+            </nav>
+          </>}
           {!online && <span className="hidden sm:inline text-xs font-bold rounded-full bg-amber-100 text-amber-900 px-3 py-1">Offline · some features need internet</span>}
           {online && installPrompt && <button onClick={async () => { await installPrompt.prompt(); setInstallPrompt(null); }} className="hidden sm:inline-flex text-xs font-bold rounded-xl bg-amber-100 text-amber-900 px-3 py-2">Install app</button>}
           {/* Notification Button */}

@@ -11,7 +11,7 @@ export const config = {
   jwtSecret,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   resendApiKey: process.env.RESEND_API_KEY || '',
-  emailFrom: process.env.EMAIL_FROM || 'Chore Manager <onboarding@resend.dev>',
+  emailFrom: process.env.EMAIL_FROM || '',
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
     apiKey: process.env.CLOUDINARY_API_KEY || '',

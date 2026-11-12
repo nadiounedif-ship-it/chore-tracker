@@ -207,6 +207,7 @@ export const BossDashboard: React.FC = () => {
   // Calculate Metrics
   const activeMembersCount = teamData?.members?.filter((m) => m.status === 'ACTIVE').length || 0;
   const pendingRequests = choresData?.flatMap((chore) => (chore.assignments || []).filter((a) => a.status === 'REQUESTED').map((a) => ({ ...a, choreTitle: chore.title, choreId: chore.id }))) || [];
+  const completedAssignments = (choresData?.flatMap((chore) => (chore.assignments || []).filter((assignment) => assignment.status === 'COMPLETED').map((assignment) => ({ id: assignment.id, choreId: chore.id, choreTitle: chore.title, workerName: assignment.worker?.fullName || 'Worker', completedAt: assignment.completedAt }))) || []).sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
   const awaitingReviewSessions = choresData?.flatMap((chore) => (chore.assignments || []).flatMap((a) => (a.sessions || []).filter((s: any) => s.status === 'SUBMITTED').map((s: any) => ({ ...s, choreTitle: chore.title, choreId: chore.id, workerName: a.worker?.fullName || 'Worker' })))) || [];
   const totalUnpaid = financeData?.totalUnpaid || '0.00';
 
@@ -380,6 +381,11 @@ export const BossDashboard: React.FC = () => {
               <Plus className="w-4 h-4" /> Create Chore
             </button>
           </div>
+
+          <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
+            {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
+          </section>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {choresData?.map((chore) => (

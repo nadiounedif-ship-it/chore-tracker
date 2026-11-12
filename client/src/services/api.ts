@@ -61,6 +61,7 @@ export const api = {
       request<{ message: string }>('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
     changeEmail: (email: string, password: string) =>
       request<{ message: string }>('/auth/email/change', { method: 'POST', body: JSON.stringify({ email, password }) }),
+    resendEmailVerification: () => request<{ message: string }>('/auth/email/verification/resend', { method: 'POST' }),
     verifyEmail: (token: string) => request<{ message: string }>('/auth/email/verify', { method: 'POST', body: JSON.stringify({ token }) }),
     updateNotificationPreferences: (preferences: { enabled: boolean; categories: string[] }) =>
       request<{ emailNotificationPreferences: any }>('/auth/notification-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),

@@ -127,7 +127,7 @@ For effortless testing, the seed script creates a complete family scenario:
 
 ## ✉️ Email delivery setup (optional)
 
-In `server/.env`, configure `RESEND_API_KEY` and `EMAIL_FROM`. Create a free Resend account, verify the sending domain shown in `EMAIL_FROM`, and use an address on that domain. Keep the API key on the server; never add it to the client environment. Email notifications require a verified user email address and the user's enabled notification categories. In-app notifications continue to work when email delivery is not configured or a send fails.
+Configure `RESEND_API_KEY` and `EMAIL_FROM` in the **backend hosting environment** (for local development, use `server/.env`). Create a Resend API key and verify the sending domain used in `EMAIL_FROM`; Resend requires a verified domain for sending from your own domain. The app's default example sender is not configured for your production domain. Keep the API key on the server; never add it to the client environment. Email notifications require a verified user email address and the user's enabled notification categories. In-app notifications continue to work when email delivery is not configured or a send fails.
 
 Apply the additive database migration and regenerate Prisma Client when deploying this version:
 

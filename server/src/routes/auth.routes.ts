@@ -453,6 +453,26 @@ authRouter.put('/password', authenticate, async (req, res) => {
   }
 });
 
+authRouter.post('/email/verification/resend', authenticate, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+    if (user.emailVerified) return res.status(400).json({ error: 'Your current email address is already verified.' });
+    if (!config.resendApiKey) return res.status(503).json({ error: 'Email delivery is not configured on the server. Add RESEND_API_KEY and EMAIL_FROM to the backend hosting settings.' });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+    await prisma.emailVerificationToken.create({ data: { userId: user.id, newEmail: user.email, tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
+    const link = `${config.frontendUrl}/?verify-email=${rawToken}`;
+    const sent = await sendEmail(user.email, 'Verify your Chore Manager email', `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155"><h2 style="color:#047857">Chore Manager</h2><p>Hi ${escapeHtml(user.fullName)},</p><p>Confirm that this email address belongs to you.</p><p><a style="display:inline-block;background:#059669;color:white;padding:12px 18px;border-radius:10px;text-decoration:none" href="${link}">Verify my email</a></p><p>This link expires in one hour. If you did not request this, you can ignore this message.</p></div>`);
+    if (!sent) return res.status(503).json({ error: 'The email provider could not deliver the verification message. Check the backend email settings and sender verification.' });
+    return res.json({ message: `Verification link sent to ${user.email}.` });
+  } catch (error) {
+    console.error('[Email] Could not create verification email:', error instanceof Error ? error.message : 'unknown error');
+    return res.status(500).json({ error: 'Could not send the verification email. Please try again.' });
+  }
+});
+
 authRouter.post('/email/change', authenticate, async (req, res) => {
   try {
     const { email, password } = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
@@ -465,7 +485,7 @@ authRouter.post('/email/change', authenticate, async (req, res) => {
     await prisma.emailVerificationToken.create({ data: { userId: user.id, newEmail: email, tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
     const link = `${config.frontendUrl}/?verify-email=${rawToken}`;
     const sent = await sendEmail(email, 'Confirm your Chore Manager email', `<p>Hi ${escapeHtml(user.fullName)},</p><p>Confirm your new email address for Chore Manager.</p><p><a href="${link}">Confirm email address</a></p><p>This link expires in one hour. If you did not request this, you can ignore this message.</p>`);
-    if (!sent) return res.status(503).json({ error: 'Verification email could not be sent. Check the email service configuration and try again.' });
+    if (!sent) return res.status(503).json({ error: 'Verification email could not be sent. Check RESEND_API_KEY, EMAIL_FROM, and verify the sender address on the backend email provider.' });
     return res.json({ message: 'Verification link sent to your new email address.' });
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });

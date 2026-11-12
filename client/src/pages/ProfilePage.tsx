@@ -74,11 +74,11 @@ export const ProfilePage: React.FC = () => {
         <div className="sm:col-span-2"><button className="rounded-xl bg-emerald-600 text-white px-5 py-2.5 font-bold">Save personal information</button></div>
       </form>
       <form className="border-t pt-5 grid sm:grid-cols-3 gap-3" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.changeEmail(newEmail, emailPassword), 'Verification link sent to your new email address.'); }}>
-        <input type="email" required placeholder="New email address" className="rounded-xl border p-3" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+        <input type="email" required placeholder="New email address" aria-label="New email address" className="rounded-xl border p-3" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
         <input type="password" required placeholder="Confirm with password" className="rounded-xl border p-3" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} />
         <button className="rounded-xl bg-amber-500 text-white px-4 py-2 font-bold">Change email securely</button>
       </form>
-      {!user.emailVerified && <p className="text-xs text-slate-500">Your email must be verified before email notifications can be delivered. Email verification is sent through the configured email provider.</p>}
+      {!user.emailVerified && <div className="rounded-xl bg-amber-50 p-4 space-y-2"><p className="text-sm text-amber-950">Your current address <strong>{user.email}</strong> is not verified. Send a verification link to this address, or use the form above to change it first.</p><button type="button" onClick={() => run(() => api.auth.resendEmailVerification())} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">Send verification to my current email</button><p className="text-xs text-amber-900">If the message does not arrive, check spam and ask the app administrator to confirm the email service is configured.</p></div>}
     </section>
 
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">
