@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import path from 'path';
 
 export default defineConfig({
   plugins: [
@@ -33,17 +32,20 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: '/index.html',
-        runtimeCaching: [{
-          urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
-          handler: 'NetworkOnly',
-          method: 'GET',
-        }],
+        navigateFallbackDenylist: [/^\/api/, /onrender\.com/],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/') && !url.hostname.includes('onrender.com'),
+            handler: 'NetworkOnly',
+            method: 'GET',
+          },
+        ],
       }
     })
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src')
+      '@': new URL('./src', import.meta.url).pathname
     }
   },
   server: {
