@@ -11,7 +11,7 @@ import {
 
 // In production on Vercel, keep API calls same-origin so Safari can store and
 // send the existing HttpOnly session cookie. Vercel proxies /api to Render.
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const BASE_URL = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL || '/api');
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
