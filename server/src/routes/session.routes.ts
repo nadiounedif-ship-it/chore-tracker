@@ -289,6 +289,14 @@ sessionRouter.post('/clock-in', authenticate, requireRole('BOSS'), async (req: R
         error: `Chore is not approved for ${worker.fullName}. Please approve assignment first.` 
       });
     }
+    if (assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
+      await prisma.$transaction(async (tx) => {
+        await tx.choreAssignment.updateMany({ where: { id: assignment.id, status: 'APPROVED' }, data: { status: 'CANCELLED' } });
+        const remaining = await tx.choreAssignment.count({ where: { choreId: chore.id, status: { in: ['APPROVED', 'ACTIVE'] } } });
+        if (!remaining) await tx.chore.updateMany({ where: { id: chore.id, status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }, data: { status: 'OPEN' } });
+      });
+      return res.status(410).json({ error: 'The 48-hour start window has expired. This chore is available to the team again.' });
+    }
 
     // Prevent duplicate overlapping active sessions
     const activeSession = await prisma.choreSession.findFirst({
@@ -534,6 +542,14 @@ sessionRouter.post('/remote/start', authenticate, requireRole('WORKER'), async (
 
     if (assignment.status !== 'APPROVED') {
       return res.status(400).json({ error: 'Chore must be approved by Boss before starting.' });
+    }
+    if (assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
+      await prisma.$transaction(async (tx) => {
+        await tx.choreAssignment.updateMany({ where: { id: assignment.id, status: 'APPROVED' }, data: { status: 'CANCELLED' } });
+        const remaining = await tx.choreAssignment.count({ where: { choreId: assignment.choreId, status: { in: ['APPROVED', 'ACTIVE'] } } });
+        if (!remaining) await tx.chore.updateMany({ where: { id: assignment.choreId, status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }, data: { status: 'OPEN' } });
+      });
+      return res.status(410).json({ error: 'The 48-hour start window has expired. This chore is available to the team again.' });
     }
 
     // Enforce photo if required by chore

@@ -217,8 +217,16 @@ export const api = {
   // Notifications
   notifications: {
     list: () => request<{ notifications: any[]; unreadCount: number }>('/notifications'),
+    pushKey: () => request<{ publicKey: string }>('/notifications/push-key'),
+    savePushSubscription: (subscription: PushSubscriptionJSON) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
+    removePushSubscription: (endpoint: string) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),
     markRead: (id: string) => request<{ message: string }>(`/notifications/${id}/read`, { method: 'PUT' }),
     markAllRead: () => request<{ message: string }>('/notifications/read-all', { method: 'PUT' }),
+  },
+
+  chat: {
+    list: (teamId: string) => request<any[]>(`/chat/teams/${teamId}/messages`),
+    send: (teamId: string, message: string) => request<any>(`/chat/teams/${teamId}/messages`, { method: 'POST', body: JSON.stringify({ message }) }),
   },
 
   // Photo Upload

@@ -12,6 +12,8 @@ import { shoppingRouter } from './routes/shopping.routes.js';
 import { savingsRouter } from './routes/savings.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { uploadRouter } from './routes/upload.routes.js';
+import { chatRouter } from './routes/chat.routes.js';
+import { expireUnstartedApprovals } from './utils/choreExpiry.js';
 
 const app = express();
 
@@ -55,6 +57,7 @@ app.use('/api/piggybank', piggybankRouter);
 app.use('/api/shopping', shoppingRouter);
 app.use('/api/savings', savingsRouter);
 app.use('/api/notifications', notificationRouter);
+app.use('/api/chat', chatRouter);
 app.use('/api/upload', uploadRouter);
 
 // Global Error Handler
@@ -68,5 +71,8 @@ app.listen(config.port, () => {
   console.log(`[Chore Manager Server] Listening on http://localhost:${config.port}`);
   console.log(`[Environment] Mode: ${config.nodeEnv}`);
 });
+
+// Release approved chores that were not started within 48 hours.
+setInterval(() => { void expireUnstartedApprovals().catch((error) => console.error('[Chore expiry] Background check failed.', error)); }, 60_000).unref();
 
 export default app;

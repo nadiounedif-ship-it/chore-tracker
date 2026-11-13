@@ -20,13 +20,15 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { TeamChat } from '../../components/TeamChat';
+import { DeadlineTimer } from '../../components/DeadlineTimer';
 
 export const WorkerDashboard: React.FC = () => {
   const { user, activeTeamId, dashboardTab, setDashboardTab } = useAuth();
   const queryClient = useQueryClient();
 
   // Navigation Tab
-  const [activeTab, setActiveTab] = useState<'home' | 'piggybank' | 'available' | 'mychores' | 'qr' | 'goals' | 'shopping'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'piggybank' | 'available' | 'mychores' | 'qr' | 'goals' | 'shopping' | 'chat'>('home');
 
   // Modals & Timers
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -62,7 +64,9 @@ export const WorkerDashboard: React.FC = () => {
     queryFn: () => api.chores.getMyAssignments(undefined, activeTeamId === 'ALL' ? undefined : activeTeamId),
   });
   const completedAssignments = myAssignments?.filter((assignment) => assignment.status === 'COMPLETED') || [];
-  const activeAssignments = myAssignments?.filter((assignment) => assignment.status !== 'COMPLETED') || [];
+  const requestedAssignments = myAssignments?.filter((assignment) => assignment.status === 'REQUESTED') || [];
+  const inProgressAssignments = myAssignments?.filter((assignment) => assignment.status === 'ACTIVE') || [];
+  const activeAssignments = myAssignments?.filter((assignment) => ['APPROVED', 'REJECTED', 'CANCELLED'].includes(assignment.status)) || [];
 
   const { data: qrData } = useQuery({
     queryKey: ['qrBadge'],
@@ -83,7 +87,7 @@ export const WorkerDashboard: React.FC = () => {
   const { data: shoppingRequests } = useQuery({ queryKey: ['shoppingRequests', activeTeamId], queryFn: () => api.shopping.list(activeTeamId === 'ALL' ? undefined : activeTeamId) });
 
   useEffect(() => {
-    if (dashboardTab && ['home', 'piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping'].includes(dashboardTab)) {
+    if (dashboardTab && ['home', 'piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping', 'chat'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any); setDashboardTab(null);
     }
   }, [dashboardTab, setDashboardTab]);
@@ -284,6 +288,8 @@ export const WorkerDashboard: React.FC = () => {
         </button>)}
       </section>}
 
+      {activeTab === 'chat' && <TeamChat teamId={activeTeamId && activeTeamId !== 'ALL' ? activeTeamId : user?.teamMemberships?.find((m) => m.status === 'ACTIVE')?.teamId} />}
+
       {/* TAB: PIGGY BANK & TEAM BREAKDOWN */}
       {activeTab === 'piggybank' && (
         <div className="space-y-8">
@@ -388,6 +394,7 @@ export const WorkerDashboard: React.FC = () => {
 
                   <h3 className="font-bold text-slate-900 text-base">{chore.title}</h3>
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2">{chore.description}</p>
+                  {chore.requestDeadline && <p className="mt-2"><DeadlineTimer date={chore.requestDeadline} /></p>}
                   <p className="text-[11px] text-purple-700 font-semibold mt-2">Team: {chore.team?.name}</p>
                 </div>
 
@@ -414,10 +421,9 @@ export const WorkerDashboard: React.FC = () => {
       {/* TAB: MY CHORES */}
       {activeTab === 'mychores' && (
         <div className="space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">My Assigned Chores</h2>
-            <p className="text-xs text-slate-500">Track approved chores and start working</p>
-          </div>
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3"><h2 className="text-lg font-extrabold text-amber-950">Requested chores (pending request) <span className="text-sm">{requestedAssignments.length}</span></h2>{requestedAssignments.length ? requestedAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-amber-800">Waiting for team approval</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div>) : <p className="text-sm text-slate-600">No requests waiting for approval.</p>}</section>
+          <section className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-3"><h2 className="text-lg font-extrabold text-sky-950">Chores in progress <span className="text-sm">{inProgressAssignments.length}</span></h2>{inProgressAssignments.length ? inProgressAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-sky-800">In progress</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div>) : <p className="text-sm text-slate-600">No chores in progress right now.</p>}</section>
+          <div><h2 className="text-xl font-bold text-slate-900">My chores</h2><p className="text-xs text-slate-500">Approved chores ready for you to start</p></div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {activeAssignments.map((a) => (
@@ -433,6 +439,7 @@ export const WorkerDashboard: React.FC = () => {
                   </div>
                   <h3 className="font-bold text-slate-900 text-base">{a.chore?.title}</h3>
                   <p className="text-xs text-slate-500 mt-1">{a.chore?.description}</p>
+                  {a.status === 'APPROVED' && a.approvedAt && <p className="mt-2"><DeadlineTimer date={new Date(new Date(a.approvedAt).getTime() + 48 * 60 * 60 * 1000).toISOString()} prefix="Start within" /></p>}
                   {a.chore?.requiresBeforeAfterPictures && a.status === 'APPROVED' && <label className="block mt-3 text-xs font-semibold text-slate-600">Before photo (required)<input type="file" accept="image/*" capture="environment" className="block mt-1 text-xs" onChange={(e) => uploadProof(e.target.files?.[0], setBeforeProofUrl)} />{beforeProofUrl && <span className="text-emerald-700">Photo ready ✓</span>}</label>}
                 </div>
 
@@ -451,7 +458,7 @@ export const WorkerDashboard: React.FC = () => {
               </div>
             ))}
           </div>
-          {activeAssignments.length === 0 && <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">No active or waiting chores right now.</p>}
+          {activeAssignments.length === 0 && <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">No approved chores waiting to start.</p>}
           <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">A little history of the work you have finished.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
             {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-chore-${assignment.choreId}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4">

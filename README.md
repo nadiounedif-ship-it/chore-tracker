@@ -147,6 +147,18 @@ The migration adds profile verification/preferences, inactivity-aware sessions, 
 
 On Android, open Chore Manager in Chrome and use **Install app** when it appears, or select **Add to Home screen** in Chrome's menu. On iPhone/iPad, open the site in Safari, tap **Share**, then **Add to Home Screen**. NFC requires a compatible Android device, Chrome, and HTTPS. Camera QR scanning is the cross-device fallback. Offline mode caches the app shell only; account, chore and financial actions require a network connection.
 
+### Chore request and start windows
+
+Each new chore has a request cutoff. The worker app counts down to that cutoff; if no worker has requested it, it disappears from worker availability and remains visible to the boss under **Non attributed chores**. After a boss approves a request, the worker has 48 hours to start. The server checks this limit continuously and releases unstarted assignments back to the team.
+
+### Team chat
+
+The **Team chat** page is a shared message board for active members of the selected team. It has no private conversations. Messages are limited to 2,000 characters and the page refreshes every five seconds.
+
+### Phone push notifications
+
+The server needs a VAPID key pair. Generate one in `server` with `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the server's environment (for production, set them in the API host's secret settings). Keep the private key only on the server. Users then enable notifications in **Profile & settings** on each device. iPhone/iPad users need iOS/iPadOS 16.4 or later and must add Chore Manager to the Home Screen before enabling push. [Apple's Web Push documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers) covers the platform requirement.
+
 ---
 
 ## 📁 Project Architecture

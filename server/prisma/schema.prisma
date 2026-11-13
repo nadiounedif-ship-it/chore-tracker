@@ -55,6 +55,8 @@ model User {
   notifications           Notification[]
   emailVerificationTokens EmailVerificationToken[]
   authSessions            AuthSession[]
+  pushSubscriptions       PushSubscription[]
+  teamMessages            TeamMessage[]
 
   @@index([role])
 }
@@ -101,6 +103,7 @@ model Team {
   transactions     PiggyBankTransaction[]
   disputes         Dispute[]
   notifications    Notification[]
+  messages         TeamMessage[]
 
   @@index([bossId])
 }
@@ -238,6 +241,7 @@ model Chore {
   weekNumber                  Int // ISO week number
   year                        Int // e.g. 2026
   deadline                    DateTime?
+  requestDeadline             DateTime?
   requiresBeforeAfterPictures Boolean             @default(false)
   requiresNfc                 Boolean             @default(false)
   allowMultipleWorkers        Boolean             @default(false)
@@ -585,4 +589,28 @@ model Notification {
   createdAt     DateTime         @default(now())
 
   @@index([userId, isRead])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model TeamMessage {
+  id        String   @id @default(uuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  message   String   @db.VarChar(2000)
+  createdAt DateTime @default(now())
+
+  @@index([teamId, createdAt])
 }
