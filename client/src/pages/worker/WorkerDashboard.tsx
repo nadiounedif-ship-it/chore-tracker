@@ -28,7 +28,7 @@ export const WorkerDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   // Navigation Tab
-  const [activeTab, setActiveTab] = useState<'home' | 'piggybank' | 'available' | 'mychores' | 'qr' | 'goals' | 'shopping' | 'chat'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'piggybank' | 'available' | 'mychores' | 'calendar' | 'qr' | 'goals' | 'shopping' | 'chat'>('home');
 
   // Modals & Timers
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -88,7 +88,7 @@ export const WorkerDashboard: React.FC = () => {
   const { data: shoppingRequests } = useQuery({ queryKey: ['shoppingRequests', activeTeamId], queryFn: () => api.shopping.list(activeTeamId === 'ALL' ? undefined : activeTeamId) });
 
   useEffect(() => {
-    if (dashboardTab && ['home', 'piggybank', 'available', 'mychores', 'qr', 'goals', 'shopping', 'chat'].includes(dashboardTab)) {
+    if (dashboardTab && ['home', 'piggybank', 'available', 'mychores', 'calendar', 'qr', 'goals', 'shopping', 'chat'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any); setDashboardTab(null);
     }
   }, [dashboardTab, setDashboardTab]);
@@ -118,6 +118,7 @@ export const WorkerDashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['myAssignments'] });
     },
   });
+  const cancelRequestMutation = useMutation({ mutationFn: (assignmentId: string) => api.chores.cancelRequest(assignmentId), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['myAssignments'] }); queryClient.invalidateQueries({ queryKey: ['availableChores'] }); }, onError: (e: any) => alert(e.message || 'Could not withdraw request.') });
 
   const remoteStartMutation = useMutation({
     mutationFn: ({ assignmentId, beforePictureUrl }: { assignmentId: string; beforePictureUrl?: string }) =>
@@ -281,6 +282,7 @@ export const WorkerDashboard: React.FC = () => {
           { id: 'piggybank', icon: '🐷', title: 'Piggy bank', detail: 'See your earnings and team balances' },
           { id: 'available', icon: '✨', title: 'Available chores', detail: `${availableChores?.length || 0} chores to choose from` },
           { id: 'mychores', icon: '📋', title: 'My chores', detail: `${myAssignments?.filter((a) => a.status !== 'COMPLETED').length || 0} in progress or waiting` },
+          { id: 'calendar', icon: '🗓️', title: 'Chore calendar', detail: `${(myAssignments || []).filter((a) => a.chore?.deadline).length} scheduled chores` },
           { id: 'goals', icon: '🎯', title: 'Savings goals', detail: 'Track what you are saving for' },
           { id: 'qr', icon: '📱', title: 'NFC & QR badge', detail: 'Open your attendance badge' },
           { id: 'shopping', icon: '🛒', title: 'Request supplies', detail: 'Ask your Boss for supplies' },
@@ -290,6 +292,7 @@ export const WorkerDashboard: React.FC = () => {
       </section>}
 
       {activeTab === 'chat' && <TeamChat teamId={activeTeamId && activeTeamId !== 'ALL' ? activeTeamId : user?.teamMemberships?.find((m) => m.status === 'ACTIVE')?.teamId} />}
+      {activeTab === 'calendar' && <WorkerChoreCalendar items={(myAssignments || []).filter((a) => a.chore?.deadline).map((a) => ({ id: a.choreId, title: a.chore?.title || 'Chore', date: a.chore!.deadline!, status: a.status, team: a.chore?.team?.name || 'Team' }))} />}
 
       {/* TAB: PIGGY BANK & TEAM BREAKDOWN */}
       {activeTab === 'piggybank' && (
@@ -422,7 +425,7 @@ export const WorkerDashboard: React.FC = () => {
       {/* TAB: MY CHORES */}
       {activeTab === 'mychores' && (
         <div className="space-y-6">
-          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3"><h2 className="text-lg font-extrabold text-amber-950">Requested chores (pending request) <span className="text-sm">{requestedAssignments.length}</span></h2>{requestedAssignments.length ? requestedAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-amber-800">Waiting for team approval</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div>) : <p className="text-sm text-slate-600">No requests waiting for approval.</p>}</section>
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3"><h2 className="text-lg font-extrabold text-amber-950">Requested chores (pending request) <span className="text-sm">{requestedAssignments.length}</span></h2>{requestedAssignments.length ? requestedAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="flex items-center justify-between gap-3 rounded-xl bg-white p-3"><div><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-amber-800">Waiting for team approval</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div><button disabled={cancelRequestMutation.isPending} onClick={() => { if (confirm('Withdraw this pending chore request?')) cancelRequestMutation.mutate(a.id); }} className="shrink-0 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 disabled:opacity-50">Withdraw</button></div>) : <p className="text-sm text-slate-600">No requests waiting for approval.</p>}</section>
           <section className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-3"><h2 className="text-lg font-extrabold text-sky-950">Chores in progress <span className="text-sm">{inProgressAssignments.length}</span></h2>{inProgressAssignments.length ? inProgressAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-sky-800">In progress</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p>{a.chore?.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Complete by {new Date(a.chore.deadline).toLocaleString()} · €0.50 late fee if unfinished</p>}</div>) : <p className="text-sm text-slate-600">No chores in progress right now.</p>}</section>
           <div><h2 className="text-xl font-bold text-slate-900">My chores</h2><p className="text-xs text-slate-500">Approved chores ready for you to start</p></div>
 
@@ -666,6 +669,13 @@ export const WorkerDashboard: React.FC = () => {
       )}
     </div>
   );
+};
+
+const WorkerChoreCalendar: React.FC<{ items: { id: string; title: string; date: string; status: string; team: string }[] }> = ({ items }) => {
+  const [offset, setOffset] = useState(0);
+  const month = new Date(); month.setDate(1); month.setMonth(month.getMonth() + offset);
+  const upcoming = items.filter((item) => { const d = new Date(item.date); return d.getFullYear() === month.getFullYear() && d.getMonth() === month.getMonth(); }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  return <section className="rounded-3xl border border-orange-100 bg-white p-5 sm:p-7 space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-extrabold">My chore deadlines</h2><p className="text-sm text-slate-500">Keep an eye on upcoming chores.</p></div><div className="flex gap-2"><button onClick={() => setOffset((n) => n - 1)} className="rounded-xl border px-3 py-2" aria-label="Previous month">←</button><strong className="self-center">{month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong><button onClick={() => setOffset((n) => n + 1)} className="rounded-xl border px-3 py-2" aria-label="Next month">→</button></div></div>{upcoming.length ? upcoming.map((item) => <article key={item.id} className="rounded-2xl bg-emerald-50 p-4"><div className="flex flex-wrap justify-between gap-2"><strong>{item.title}</strong><span className="text-xs font-bold text-rose-700">{new Date(item.date).toLocaleString()}</span></div><p className="text-xs text-slate-600">{item.team} · {item.status}</p></article>) : <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">No scheduled chores this month.</p>}</section>;
 };
 
 // Sub-Modal: Create Savings Goal

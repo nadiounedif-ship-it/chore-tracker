@@ -101,6 +101,7 @@ export const api = {
   // Chores
   chores: {
     create: (data: any) => request<{ message: string; chore: Chore }>('/chores', { method: 'POST', body: JSON.stringify(data) }),
+    update: (choreId: string, data: any) => request<{ message: string; chore: Chore }>(`/chores/${choreId}`, { method: 'PUT', body: JSON.stringify(data) }),
     getMyTeamChores: (params?: { week?: number; year?: number; status?: string; category?: string }) => {
       const q = new URLSearchParams(params as any).toString();
       return request<Chore[]>(`/chores/my-team${q ? `?${q}` : ''}`);
@@ -109,6 +110,7 @@ export const api = {
       request<Chore[]>(`/chores/available${teamId ? `?teamId=${teamId}` : ''}`),
     requestChore: (choreId: string) =>
       request<{ message: string; assignment: ChoreAssignment }>(`/chores/${choreId}/request`, { method: 'POST' }),
+    cancelRequest: (assignmentId: string) => request<{ message: string }>(`/chores/requests/${assignmentId}/cancel`, { method: 'POST' }),
     respondChoreRequest: (assignmentId: string, action: 'APPROVE' | 'REJECT') =>
       request<{ message: string }>(`/chores/requests/${assignmentId}/respond`, {
         method: 'POST',
