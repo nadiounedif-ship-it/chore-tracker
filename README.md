@@ -124,14 +124,10 @@ For effortless testing, the seed script creates a complete family scenario:
 
 ## ⚙️ New account and team settings
 
-- Open **Profile** in the top bar to update your name, username and profile photo, change your password, verify or change your email address, and manage email notification preferences. Date of birth is read-only because it determines hourly pay.
+- Open **Profile** in the top bar to update your name, username and profile photo, change your password, and enable phone notifications. Date of birth is read-only because it determines hourly pay. Email verification and email notifications are temporarily disabled; account email remains available for login.
 - Workers can open **My Teams** to accept or decline invitations, switch teams, review team information, or leave a team. Leaving preserves earnings and completed work history.
 - Bosses can set payment frequency in **Profile → Payment Settings**. Existing payment periods keep their original schedule; newly opened periods use the current setting.
 - Chores can only be deleted if no worker request, assignment, or work session exists. This rule is enforced by the API.
-
-## ✉️ Email delivery setup (optional)
-
-Configure `RESEND_API_KEY` and `EMAIL_FROM` in the **backend hosting environment** (for local development, use `server/.env`). Create a Resend API key and verify the sending domain used in `EMAIL_FROM`; Resend requires a verified domain for sending from your own domain. The app's default example sender is not configured for your production domain. Keep the API key on the server; never add it to the client environment. Email notifications require a verified user email address and the user's enabled notification categories. In-app notifications continue to work when email delivery is not configured or a send fails.
 
 Apply the additive database migration and regenerate Prisma Client when deploying this version:
 
@@ -149,15 +145,15 @@ On Android, open Chore Manager in Chrome and use **Install app** when it appears
 
 ### Chore request and start windows
 
-Each new chore has a request cutoff. The worker app counts down to that cutoff; if no worker has requested it, it disappears from worker availability and remains visible to the boss under **Non attributed chores**. After a boss approves a request, the worker has 48 hours to start. The server checks this limit continuously and releases unstarted assignments back to the team.
+Each open chore has a request cutoff. The worker app counts down to that cutoff; if no worker has requested it, it disappears from worker availability and remains visible to the boss under **Non attributed chores**. Bosses can also assign chores directly to an active team member. After assignment approval, the worker has 48 hours to start. A separate completion deadline is optional; when one is set, the server deducts a one-time €0.50 fee from an assigned worker if the chore remains unfinished past the deadline. A submitted chore awaiting review is not penalized unless the boss rejects it.
 
 ### Team chat
 
-The **Team chat** page is a shared message board for active members of the selected team. It has no private conversations. Messages are limited to 2,000 characters and the page refreshes every five seconds.
+The **Team chat** page is a shared message board for active members of the selected team. It has no private conversations. Messages are limited to 2,000 characters, appear in the notification bell for the other active members, and are also sent as phone push notifications to subscribed devices.
 
 ### Phone push notifications
 
-The server needs a VAPID key pair. Generate one in `server` with `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the server's environment (for production, set them in the API host's secret settings). Keep the private key only on the server. Users then enable notifications in **Profile & settings** on each device. iPhone/iPad users need iOS/iPadOS 16.4 or later and must add Chore Manager to the Home Screen before enabling push. [Apple's Web Push documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers) covers the platform requirement.
+The server needs a VAPID key pair. Generate one in `server` with `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the server's environment (for production, set them in the API host's secret settings). Use a `mailto:you@example.com` value for `VAPID_SUBJECT`. Keep the private key only on the server. Users then enable notifications in **Profile & settings** on each device. iPhone/iPad users need iOS/iPadOS 16.4 or later and must add Chore Manager to the Home Screen before enabling push. [Apple's Web Push documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers) covers the platform requirement.
 
 ---
 

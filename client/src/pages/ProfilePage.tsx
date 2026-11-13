@@ -3,12 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const emailOptions = [
-  ['INVITATION', 'Team invitations and membership'], ['CHORE', 'Chore assignments and reviews'],
-  ['DEADLINE', 'Upcoming chore deadlines'], ['PAYMENT', 'Payments and earnings'],
-  ['SHOPPING', 'Shopping requests'], ['ACCOUNT', 'Other important account updates'],
-] as const;
-
 export const ProfilePage: React.FC = () => {
   const { user, refreshUser, role } = useAuth();
   const queryClient = useQueryClient();
@@ -16,24 +10,14 @@ export const ProfilePage: React.FC = () => {
   const [username, setUsername] = useState(user?.username || '');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [emailPassword, setEmailPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [pushState, setPushState] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const { data: team } = useQuery({ queryKey: ['myTeam'], queryFn: api.teams.getMyTeam, enabled: role === 'BOSS' });
-  const preferences = user?.emailNotificationPreferences || { enabled: false, categories: [] };
 
   useEffect(() => { setFullName(user?.fullName || ''); setUsername(user?.username || ''); }, [user]);
   useEffect(() => { if ('serviceWorker' in navigator) void navigator.serviceWorker.ready.then(async (registration) => setPushEnabled(!!(await registration.pushManager.getSubscription()))).catch(() => {}); }, []);
-  useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get('verify-email');
-    if (!token) return;
-    api.auth.verifyEmail(token).then(async (result) => { setMessage(result.message); await refreshUser(); }).catch((err: any) => setError(err.message || 'Email verification failed.')).finally(() => {
-      const url = new URL(window.location.href); url.searchParams.delete('verify-email'); window.history.replaceState({}, '', url.toString());
-    });
-  }, []);
 
   const run = async (action: () => Promise<any>, successText?: string) => {
     setError(''); setMessage('');
@@ -47,13 +31,6 @@ export const ProfilePage: React.FC = () => {
       const uploaded = await api.upload(file);
       return api.auth.updateProfile({ avatarUrl: uploaded.url });
     }, 'Profile photo updated.');
-  };
-
-  const toggleCategory = (category: string) => {
-    const categories = preferences.categories.includes(category)
-      ? preferences.categories.filter((item) => item !== category)
-      : [...preferences.categories, category];
-    run(() => api.auth.updateNotificationPreferences({ enabled: preferences.enabled, categories }), 'Email preferences saved.');
   };
 
   const enablePush = async () => {
@@ -91,18 +68,12 @@ export const ProfilePage: React.FC = () => {
       <form className="grid sm:grid-cols-2 gap-4" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.updateProfile({ fullName, username })); }}>
         <label className="text-sm font-semibold">Full name<input className="block w-full mt-1 rounded-xl border border-slate-200 p-3" value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
         <label className="text-sm font-semibold">Username<input className="block w-full mt-1 rounded-xl border border-slate-200 p-3" value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-        <label className="text-sm font-semibold">Email address<div className="mt-1 rounded-xl bg-slate-50 border border-slate-100 p-3 font-normal">{user.email} <span className="ml-2 text-xs">{user.emailVerified ? 'Verified' : 'Not verified'}</span></div></label>
+        <label className="text-sm font-semibold">Email address<div className="mt-1 rounded-xl bg-slate-50 border border-slate-100 p-3 font-normal">{user.email}<span className="mt-1 block text-xs text-slate-500">Email changes are temporarily unavailable.</span></div></label>
         <label className="text-sm font-semibold">Account type<div className="mt-1 rounded-xl bg-slate-50 border border-slate-100 p-3 font-normal">{role === 'BOSS' ? 'Boss / Parent' : 'Worker'}</div></label>
         <label className="text-sm font-semibold">Date of birth<div className="mt-1 rounded-xl bg-slate-50 border border-slate-100 p-3 font-normal">{user.dateOfBirth ? new Date(user.dateOfBirth).toLocaleDateString() : 'Not provided'} <span className="block text-xs text-slate-500 mt-1">This cannot be changed from your profile because it affects age-based pay.</span></div></label>
         <label className="text-sm font-semibold">Member since<div className="mt-1 rounded-xl bg-slate-50 border border-slate-100 p-3 font-normal">{new Date(user.createdAt).toLocaleDateString()}</div></label>
         <div className="sm:col-span-2"><button className="rounded-xl bg-emerald-600 text-white px-5 py-2.5 font-bold">Save personal information</button></div>
       </form>
-      <form className="border-t pt-5 grid sm:grid-cols-3 gap-3" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.changeEmail(newEmail, emailPassword), 'Verification link sent to your new email address.'); }}>
-        <input type="email" required placeholder="New email address" aria-label="New email address" className="rounded-xl border p-3" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-        <input type="password" required placeholder="Confirm with password" className="rounded-xl border p-3" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} />
-        <button className="rounded-xl bg-amber-500 text-white px-4 py-2 font-bold">Change email securely</button>
-      </form>
-      {!user.emailVerified && <div className="rounded-xl bg-amber-50 p-4 space-y-2"><p className="text-sm text-amber-950">Your current address <strong>{user.email}</strong> is not verified. Send a verification link to this address, or use the form above to change it first.</p><button type="button" onClick={() => run(() => api.auth.resendEmailVerification())} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">Send verification to my current email</button><p className="text-xs text-amber-900">If the message does not arrive, check spam and ask the app administrator to confirm the email service is configured.</p></div>}
     </section>
 
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">
@@ -117,10 +88,8 @@ export const ProfilePage: React.FC = () => {
     </section>
 
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">
-      <h2 className="text-xl font-bold">Notification Preferences</h2>
-      <label className="flex items-center justify-between p-3 rounded-xl bg-amber-50"><span className="font-semibold">Receive email notifications</span><input type="checkbox" checked={preferences.enabled} onChange={(e) => run(() => api.auth.updateNotificationPreferences({ enabled: e.target.checked, categories: preferences.categories }), 'Email preferences saved.')} /></label>
-      <p className="text-xs text-slate-500">In-app notifications always remain available. Email is sent only to your verified address.</p>
-      <div className="grid sm:grid-cols-2 gap-2">{emailOptions.map(([key, label]) => <label key={key} className="flex gap-2 items-center p-2 rounded-lg hover:bg-orange-50"><input type="checkbox" disabled={!preferences.enabled} checked={preferences.categories.includes(key)} onChange={() => toggleCategory(key)} />{label}</label>)}</div>
+      <h2 className="text-xl font-bold">Notifications</h2>
+      <p className="text-sm text-slate-600">Important updates appear in the in-app bell. Enable phone notifications above to receive alerts when the app is closed.</p>
     </section>
 
     {role === 'BOSS' && <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">

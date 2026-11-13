@@ -7,7 +7,6 @@ import { config } from '../config.js';
 import { authenticate } from '../middleware/auth.js';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
-import { sendEmail, escapeHtml } from '../utils/email.js';
 
 export const authRouter = Router();
 
@@ -355,8 +354,6 @@ authRouter.get('/me', authenticate, async (req: Request, res: Response) => {
       avatarUrl: user.avatarUrl,
       dateOfBirth: user.dateOfBirth,
       role: user.role,
-      emailVerified: user.emailVerified,
-      emailNotificationPreferences: user.emailNotificationPreferences,
       status: user.status,
       ownedTeam: user.ownedTeam,
       teamMemberships: user.teamMemberships,
@@ -422,22 +419,6 @@ authRouter.put('/profile', authenticate, async (req: Request, res: Response) => 
   }
 });
 
-const NotificationPreferencesSchema = z.object({
-  enabled: z.boolean(),
-  categories: z.array(z.enum(['INVITATION', 'TEAM', 'CHORE', 'DEADLINE', 'PAYMENT', 'SHOPPING', 'ACCOUNT'])).default([]),
-});
-
-authRouter.put('/notification-preferences', authenticate, async (req, res) => {
-  try {
-    const preferences = NotificationPreferencesSchema.parse(req.body);
-    const updated = await prisma.user.update({ where: { id: req.user!.id }, data: { emailNotificationPreferences: preferences } });
-    return res.json({ emailNotificationPreferences: updated.emailNotificationPreferences });
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
-    return res.status(500).json({ error: 'Could not save notification preferences.' });
-  }
-});
-
 authRouter.put('/password', authenticate, async (req, res) => {
   const schema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) });
   try {
@@ -453,61 +434,6 @@ authRouter.put('/password', authenticate, async (req, res) => {
   }
 });
 
-authRouter.post('/email/verification/resend', authenticate, async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) return res.status(404).json({ error: 'Account not found.' });
-    if (user.emailVerified) return res.status(400).json({ error: 'Your current email address is already verified.' });
-    if (!config.resendApiKey) return res.status(503).json({ error: 'Email delivery is not configured on the server. Add RESEND_API_KEY and EMAIL_FROM to the backend hosting settings.' });
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
-    await prisma.emailVerificationToken.create({ data: { userId: user.id, newEmail: user.email, tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
-    const link = `${config.frontendUrl}/?verify-email=${rawToken}`;
-    const sent = await sendEmail(user.email, 'Verify your Chore Manager email', `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155"><h2 style="color:#047857">Chore Manager</h2><p>Hi ${escapeHtml(user.fullName)},</p><p>Confirm that this email address belongs to you.</p><p><a style="display:inline-block;background:#059669;color:white;padding:12px 18px;border-radius:10px;text-decoration:none" href="${link}">Verify my email</a></p><p>This link expires in one hour. If you did not request this, you can ignore this message.</p></div>`);
-    if (!sent) return res.status(503).json({ error: 'The email provider could not deliver the verification message. Check the backend email settings and sender verification.' });
-    return res.json({ message: `Verification link sent to ${user.email}.` });
-  } catch (error) {
-    console.error('[Email] Could not create verification email:', error instanceof Error ? error.message : 'unknown error');
-    return res.status(500).json({ error: 'Could not send the verification email. Please try again.' });
-  }
-});
-
-authRouter.post('/email/change', authenticate, async (req, res) => {
-  try {
-    const { email, password } = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) return res.status(400).json({ error: 'Password is incorrect.' });
-    if (email.toLowerCase() === user.email.toLowerCase() && user.emailVerified) return res.status(400).json({ error: 'That is already your verified email address.' });
-    if (email.toLowerCase() !== user.email.toLowerCase() && await prisma.user.findUnique({ where: { email } })) return res.status(400).json({ error: 'That email address is already in use.' });
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
-    await prisma.emailVerificationToken.create({ data: { userId: user.id, newEmail: email, tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'), expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
-    const link = `${config.frontendUrl}/?verify-email=${rawToken}`;
-    const sent = await sendEmail(email, 'Confirm your Chore Manager email', `<p>Hi ${escapeHtml(user.fullName)},</p><p>Confirm your new email address for Chore Manager.</p><p><a href="${link}">Confirm email address</a></p><p>This link expires in one hour. If you did not request this, you can ignore this message.</p>`);
-    if (!sent) return res.status(503).json({ error: 'Verification email could not be sent. Check RESEND_API_KEY, EMAIL_FROM, and verify the sender address on the backend email provider.' });
-    return res.json({ message: 'Verification link sent to your new email address.' });
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
-    return res.status(500).json({ error: 'Could not start email verification.' });
-  }
-});
-
-authRouter.post('/email/verify', async (req, res) => {
-  try {
-    const { token } = z.object({ token: z.string().min(32) }).parse(req.body);
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const verification = await prisma.emailVerificationToken.findUnique({ where: { tokenHash } });
-    if (!verification || verification.expiresAt <= new Date()) return res.status(400).json({ error: 'This verification link is invalid or expired.' });
-    const current = await prisma.user.findUnique({ where: { id: verification.userId }, select: { email: true } });
-    if (verification.newEmail.toLowerCase() !== current?.email.toLowerCase() && await prisma.user.findUnique({ where: { email: verification.newEmail } })) return res.status(400).json({ error: 'That email address is already in use.' });
-    await prisma.$transaction([
-      prisma.user.update({ where: { id: verification.userId }, data: { email: verification.newEmail, emailVerified: true } }),
-      prisma.emailVerificationToken.delete({ where: { id: verification.id } }),
-    ]);
-    return res.json({ message: 'Email address verified and updated.' });
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
-    return res.status(500).json({ error: 'Could not verify email address.' });
-  }
-});
+authRouter.post('/email/verification/resend', authenticate, (_req, res) => res.status(410).json({ error: 'Email verification is temporarily unavailable.' }));
+authRouter.post('/email/change', authenticate, (_req, res) => res.status(410).json({ error: 'Email changes are temporarily unavailable.' }));
+authRouter.post('/email/verify', (_req, res) => res.status(410).json({ error: 'Email verification is temporarily unavailable.' }));

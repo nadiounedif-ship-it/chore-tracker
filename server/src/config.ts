@@ -10,8 +10,6 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || '',
   jwtSecret,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
-  resendApiKey: process.env.RESEND_API_KEY || '',
-  emailFrom: process.env.EMAIL_FROM || '',
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',

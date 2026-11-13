@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { createNotification, sendNotificationEmail } from '../utils/notifications.js';
+import { createNotification, sendNotificationPush } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
 import { getNextPaymentDate } from '../utils/paymentSchedule.js';
@@ -512,7 +512,7 @@ teamRouter.post('/invitations/:invitationId/respond', authenticate, requireRole(
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: 'You have joined the team successfully!' });
     } else {
@@ -524,7 +524,7 @@ teamRouter.post('/invitations/:invitationId/respond', authenticate, requireRole(
           linkUrl: '/teams', referenceType: 'invitation', referenceId: invitationId,
         } });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
       return res.json({ message: 'Invitation declined.' });
     }
   } catch (error: any) {
@@ -601,7 +601,7 @@ teamRouter.post('/my-team/join-requests/:invitationId/respond', authenticate, re
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: `${invite.worker.fullName} is now an active member of your team.` });
     } else {

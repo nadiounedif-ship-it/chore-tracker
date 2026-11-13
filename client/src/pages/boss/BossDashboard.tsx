@@ -61,6 +61,7 @@ export const BossDashboard: React.FC = () => {
   const { data: financeData } = useQuery({
     queryKey: ['teamFinances'],
     queryFn: () => api.piggybank.getTeamFinances(),
+    refetchInterval: 30000,
   });
 
   const { data: activeSessions } = useQuery({
@@ -436,7 +437,7 @@ export const BossDashboard: React.FC = () => {
             ))}
           </div>
 
-          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['APPROVED', 'ACTIVE'].includes(a.status)).map((a) => a.worker?.fullName).filter(Boolean).join(', ') || 'Assigned'}</div></article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
+          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['APPROVED', 'ACTIVE'].includes(a.status)).map((a) => a.worker?.fullName).filter(Boolean).join(', ') || 'Assigned'}</div>{chore.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Due {new Date(chore.deadline).toLocaleString()}</p>}</article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
           <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
             {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
@@ -693,6 +694,7 @@ export const BossDashboard: React.FC = () => {
       {/* Create Chore Modal */}
       {showCreateChore && (
         <CreateChoreModal
+          workers={teamData?.members?.filter((member: any) => member.status === 'ACTIVE').map((member: any) => member.worker) || []}
           onClose={() => setShowCreateChore(false)}
           onSuccess={() => {
             setShowCreateChore(false);
@@ -716,13 +718,16 @@ export const BossDashboard: React.FC = () => {
 };
 
 // Sub-Modal: Create Chore
-const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
+const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void; workers: { id: string; fullName: string; username: string }[] }> = ({ onClose, onSuccess, workers }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('CLEANING');
   const [paymentType, setPaymentType] = useState<'FIXED' | 'HOURLY'>('FIXED');
   const [fixedAmount, setFixedAmount] = useState('5.00');
   const [requestDeadline, setRequestDeadline] = useState(() => { const d = new Date(Date.now() + 7 * 86400000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); });
+  const [assignedWorkerId, setAssignedWorkerId] = useState('');
+  const [completionDeadline, setCompletionDeadline] = useState('');
+  const localMinDateTime = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const [requiresBeforeAfterPictures, setRequiresBeforeAfterPictures] = useState(false);
   const [pictures, setPictures] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -761,7 +766,9 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }>
         fixedAmount: paymentType === 'FIXED' ? parseFloat(fixedAmount) : 0,
         weekNumber: 46,
         year: 2026,
-        requestDeadline: new Date(requestDeadline).toISOString(),
+        requestDeadline: assignedWorkerId || !requestDeadline ? null : new Date(requestDeadline).toISOString(),
+        deadline: completionDeadline ? new Date(completionDeadline).toISOString() : null,
+        assignedWorkerId: assignedWorkerId || null,
         requiresBeforeAfterPictures,
         requiresNfc: true,
         pictures,
@@ -806,7 +813,9 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }>
             />
           </div>
 
-          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Last time to request this chore</label><input type="datetime-local" required min={new Date().toISOString().slice(0, 16)} value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If nobody requests it by then, it moves to Non attributed chores and workers can no longer see it.</p></div>
+          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Assign to a team member (optional)</label><select value={assignedWorkerId} onChange={(e) => setAssignedWorkerId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm"><option value="">Leave open for team requests</option>{workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName} (@{worker.username})</option>)}</select><p className="mt-1 text-xs text-slate-500">Directly assigned workers have 48 hours to start the chore.</p></div>
+          {!assignedWorkerId && <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Last time to request this chore</label><input type="datetime-local" required min={localMinDateTime()} value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If nobody requests it by then, it moves to Non attributed chores and workers can no longer see it.</p></div>}
+          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Completion deadline (optional)</label><input type="datetime-local" min={localMinDateTime()} value={completionDeadline} onChange={(e) => setCompletionDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">Leave blank for a flexible chore. If an assigned worker has not finished by this time, €0.50 is deducted once from their piggy bank.</p></div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>

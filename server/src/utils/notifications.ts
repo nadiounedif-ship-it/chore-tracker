@@ -1,18 +1,29 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { config } from '../config.js';
-import { sendEmail, escapeHtml } from './email.js';
 import webpush from 'web-push';
 
-if (config.vapidPublicKey && config.vapidPrivateKey) webpush.setVapidDetails(config.vapidSubject, config.vapidPublicKey, config.vapidPrivateKey);
+let pushReady = false;
+if (config.vapidPublicKey && config.vapidPrivateKey) {
+  const configuredSubject = config.vapidSubject.trim();
+  const subject = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuredSubject) ? `mailto:${configuredSubject}` : configuredSubject;
+  try {
+    const parsed = new URL(subject);
+    if (!['mailto:', 'https:'].includes(parsed.protocol)) throw new Error('VAPID_SUBJECT must use mailto: or https:.');
+    webpush.setVapidDetails(subject, config.vapidPublicKey, config.vapidPrivateKey);
+    pushReady = true;
+  } catch (error) {
+    console.error('[Push] VAPID settings are invalid; push delivery is disabled, but the API will remain available.', error instanceof Error ? error.message : 'unknown error');
+  }
+}
 
-async function sendPush(notificationId: string) {
-  if (!config.vapidPublicKey || !config.vapidPrivateKey) return;
+export async function sendNotificationPush(notificationId: string) {
+  if (!pushReady) return;
   try {
     const notification = await prisma.notification.findUnique({ where: { id: notificationId } });
     if (!notification) return;
     const subscriptions = await prisma.pushSubscription.findMany({ where: { userId: notification.userId } });
-    await Promise.allSettled(subscriptions.map(async (sub) => {
+    const results = await Promise.allSettled(subscriptions.map(async (sub) => {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: notification.title, body: notification.message, url: notification.linkUrl || '/', notificationId: notification.id }));
       } catch (err: any) {
@@ -20,33 +31,12 @@ async function sendPush(notificationId: string) {
         throw err;
       }
     }));
-  } catch (error) { console.error('[Notification] Push delivery failed; in-app notification was saved.', error instanceof Error ? error.message : 'unknown error'); }
-}
-
-const categoryFor: Record<string, string> = {
-  INVITATION: 'INVITATION', CHORE_REQUEST: 'CHORE', CHORE_APPROVAL: 'CHORE', CHORE_REJECTION: 'CHORE',
-  CLOCK_EVENT: 'CHORE', PAYMENT_RECORDED: 'PAYMENT', SHOPPING_REQUEST: 'SHOPPING', DISPUTE_EVENT: 'ACCOUNT', REMINDER: 'DEADLINE',
-};
-
-export async function sendNotificationEmail(notificationId: string) {
-  try {
-    const notification = await prisma.notification.findUnique({ where: { id: notificationId } });
-    if (!notification) return;
-    void sendPush(notificationId);
-    const user = await prisma.user.findUnique({ where: { id: notification.userId }, select: { email: true, fullName: true, emailVerified: true, emailNotificationPreferences: true } });
-    const prefs = user?.emailNotificationPreferences as { enabled?: boolean; categories?: string[] } | null;
-    const category = categoryFor[notification.type];
-    if (user?.emailVerified && prefs?.enabled && category && prefs.categories?.includes(category)) {
-      const destination = notification.linkUrl?.startsWith('/') ? `${config.frontendUrl}${notification.linkUrl}` : config.frontendUrl;
-      await sendEmail(user.email, `Chore Manager: ${notification.title}`, `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155"><h2 style="color:#047857">Chore Manager</h2><p>Hi ${escapeHtml(user.fullName)},</p><h3>${escapeHtml(notification.title)}</h3><p>${escapeHtml(notification.message)}</p><p><a style="display:inline-block;background:#059669;color:white;padding:12px 18px;border-radius:10px;text-decoration:none" href="${destination}">Open Chore Manager</a></p><p style="font-size:12px;color:#64748b">You can manage these emails in your profile settings.</p></div>`, `notification-${notification.id}`);
-    }
-  } catch (error) {
-    console.error('[Notification] Email preparation failed; in-app notification was saved.', error instanceof Error ? error.message : 'unknown error');
-  }
+    for (const result of results) if (result.status === 'rejected') console.error('[Push] Delivery failed:', result.reason instanceof Error ? result.reason.message : 'unknown error');
+  } catch (error) { console.error('[Push] Delivery could not be prepared; in-app notification was saved.', error instanceof Error ? error.message : 'unknown error'); }
 }
 
 export async function createNotification(args: Prisma.NotificationCreateArgs) {
   const notification = await prisma.notification.create(args);
-  await sendNotificationEmail(notification.id);
+  await sendNotificationPush(notification.id);
   return notification;
 }

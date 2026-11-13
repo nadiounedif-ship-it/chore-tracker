@@ -10,8 +10,6 @@ export interface User {
   role: UserRole;
   status: 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
   createdAt: string;
-  emailVerified?: boolean;
-  emailNotificationPreferences?: { enabled: boolean; categories: string[] };
   ownedTeam?: Team | null;
   teamMemberships?: TeamMember[];
 }
@@ -98,6 +96,7 @@ export interface ChoreAssignment {
   requestedAt: string;
   approvedAt?: string | null;
   completedAt?: string | null;
+  deadlinePenaltyAppliedAt?: string | null;
   sessions?: ChoreSession[];
 }
 
