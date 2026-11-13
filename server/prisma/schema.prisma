@@ -307,6 +307,7 @@ model ChoreAssignment {
   approvedAt               DateTime?
   completedAt              DateTime?
   deadlinePenaltyAppliedAt DateTime?
+  directAssigned           Boolean          @default(false)
 
   sessions ChoreSession[]
 

@@ -91,6 +91,7 @@ choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, re
               workerId: data.assignedWorkerId,
               status: 'APPROVED',
               approvedAt: new Date(),
+              directAssigned: true,
             },
           },
         }),
@@ -293,7 +294,7 @@ choreRouter.post('/:choreId/request', authenticate, requireRole('WORKER'), async
     }
 
     const assignment = existingAssignment
-      ? await prisma.choreAssignment.update({ where: { id: existingAssignment.id }, data: { status: 'REQUESTED', requestedAt: new Date(), approvedAt: null, completedAt: null } })
+      ? await prisma.choreAssignment.update({ where: { id: existingAssignment.id }, data: { status: 'REQUESTED', requestedAt: new Date(), approvedAt: null, completedAt: null, directAssigned: false } })
       : await prisma.choreAssignment.create({ data: { choreId: chore.id, workerId: req.user!.id, status: 'REQUESTED' } });
 
     // Notify Boss

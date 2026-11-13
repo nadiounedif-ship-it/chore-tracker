@@ -97,6 +97,7 @@ export interface ChoreAssignment {
   approvedAt?: string | null;
   completedAt?: string | null;
   deadlinePenaltyAppliedAt?: string | null;
+  directAssigned?: boolean;
   sessions?: ChoreSession[];
 }
 

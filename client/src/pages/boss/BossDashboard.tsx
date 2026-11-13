@@ -25,6 +25,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Html5Qrcode } from 'html5-qrcode';
 import { TeamChat } from '../../components/TeamChat';
 import { DeadlineTimer } from '../../components/DeadlineTimer';
+import { UserAvatar } from '../../components/UserAvatar';
 
 export const BossDashboard: React.FC = () => {
   const { user, dashboardTab, setDashboardTab } = useAuth();
@@ -617,7 +618,7 @@ export const BossDashboard: React.FC = () => {
               <div key={m.id} className="min-w-0 bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 shrink-0 rounded-full bg-slate-100 text-slate-800 font-extrabold flex items-center justify-center text-base overflow-hidden">
-                    {m.worker.avatarUrl ? <img src={m.worker.avatarUrl} alt="" className="w-full h-full object-cover" /> : m.worker.fullName.charAt(0)}
+                    <UserAvatar userId={m.worker.id} name={m.worker.fullName} className="h-full w-full text-2xl" />
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold text-sm text-slate-900 break-words">{m.worker.fullName}</div>
@@ -639,7 +640,7 @@ export const BossDashboard: React.FC = () => {
           <div className="bg-white rounded-2xl border border-orange-100 p-5 space-y-3">
             <h3 className="font-bold text-slate-900">Team Invitations</h3>
             {!teamData?.invitations?.length ? <p className="text-sm text-slate-500">No invitations have been sent yet.</p> : teamData.invitations.map((invitation: any) => <div key={invitation.id} id={`reference-invitation-${invitation.id}`} className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
-              <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center">{invitation.worker.avatarUrl ? <img src={invitation.worker.avatarUrl} className="w-full h-full object-cover" /> : invitation.worker.fullName[0]}</div><div><div className="font-bold text-sm">{invitation.worker.fullName} <span className="text-xs text-slate-400">@{invitation.worker.username}</span></div><div className="text-xs text-slate-500">Sent {new Date(invitation.createdAt).toLocaleDateString()} · {invitation.message || 'No message'}</div></div></div>
+              <div className="flex items-center gap-3"><UserAvatar userId={invitation.worker.id} name={invitation.worker.fullName} className="h-10 w-10 text-xl" /><div><div className="font-bold text-sm">{invitation.worker.fullName} <span className="text-xs text-slate-400">@{invitation.worker.username}</span></div><div className="text-xs text-slate-500">Sent {new Date(invitation.createdAt).toLocaleDateString()} · {invitation.message || 'No message'}</div></div></div>
               <div className="flex items-center gap-2"><span className={`text-xs font-bold rounded-full px-3 py-1 ${invitation.status === 'PENDING' ? 'bg-amber-50 text-amber-800' : invitation.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{invitation.status}</span>{invitation.status === 'PENDING' && <button onClick={async () => { try { await api.teams.cancelInvitation(invitation.id); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message); } }} className="text-xs font-semibold text-rose-700">Cancel</button>}{['REJECTED', 'CANCELLED'].includes(invitation.status) && <button onClick={async () => { const identifier = window.prompt('Worker email or username to invite again:', invitation.worker.username); if (!identifier) return; try { await api.teams.inviteWorker(identifier); queryClient.invalidateQueries({ queryKey: ['myTeam'] }); } catch (err: any) { alert(err.message); } }} className="text-xs font-semibold text-emerald-700">Resend</button>}</div>
             </div>)}
           </div>
@@ -813,7 +814,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void; w
             />
           </div>
 
-          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Assign to a team member (optional)</label><select value={assignedWorkerId} onChange={(e) => setAssignedWorkerId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm"><option value="">Leave open for team requests</option>{workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName} (@{worker.username})</option>)}</select><p className="mt-1 text-xs text-slate-500">Directly assigned workers have 48 hours to start the chore.</p></div>
+          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Assign to a team member (optional)</label><select value={assignedWorkerId} onChange={(e) => setAssignedWorkerId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm"><option value="">Leave open for team requests</option>{workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName} (@{worker.username})</option>)}</select><p className="mt-1 text-xs text-slate-500">Direct assignments stay with the chosen worker; the optional completion deadline and late fee apply below.</p></div>
           {!assignedWorkerId && <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Last time to request this chore</label><input type="datetime-local" required min={localMinDateTime()} value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If nobody requests it by then, it moves to Non attributed chores and workers can no longer see it.</p></div>}
           <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Completion deadline (optional)</label><input type="datetime-local" min={localMinDateTime()} value={completionDeadline} onChange={(e) => setCompletionDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">Leave blank for a flexible chore. If an assigned worker has not finished by this time, €0.50 is deducted once from their piggy bank.</p></div>
 
