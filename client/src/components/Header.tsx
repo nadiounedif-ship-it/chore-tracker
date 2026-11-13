@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { Bell, LogOut, CheckCheck, Users, Shield, Sparkles, Menu, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { UserAvatar } from './UserAvatar';
 
 export const Header: React.FC = () => {
   const { user, role, logout, activeTeamId, setActiveTeamId, activePage, setActivePage, setDashboardTab } = useAuth();
@@ -197,7 +198,7 @@ export const Header: React.FC = () => {
           {/* Profile Name & Avatar */}
           <div className="flex items-center gap-2 sm:pl-2 sm:border-l border-slate-200">
             <button onClick={() => setActivePage('profile')} className={`w-8 h-8 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center font-bold text-amber-900 text-xs ${activePage === 'profile' ? 'ring-2 ring-amber-500' : ''}`} title="Your profile">
-              {user?.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : user?.fullName?.charAt(0) || user?.username?.charAt(0) || 'U'}
+              <UserAvatar userId={user?.id} name={user?.fullName || user?.username} className="h-full w-full text-base" />
             </button>
             <div className="hidden sm:block text-left leading-tight">
               <div className="text-sm font-semibold text-slate-800">{user?.fullName}</div>

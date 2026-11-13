@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { UserAvatar } from '../components/UserAvatar';
 
 export const ProfilePage: React.FC = () => {
   const { user, refreshUser, role } = useAuth();
@@ -23,14 +24,6 @@ export const ProfilePage: React.FC = () => {
     setError(''); setMessage('');
     try { const result = await action(); setMessage(result?.message || successText || 'Changes saved.'); await refreshUser(); queryClient.invalidateQueries(); }
     catch (err: any) { setError(err.message || 'Could not save changes.'); }
-  };
-
-  const uploadAvatar = async (file?: File) => {
-    if (!file) return;
-    await run(async () => {
-      const uploaded = await api.upload(file);
-      return api.auth.updateProfile({ avatarUrl: uploaded.url });
-    }, 'Profile photo updated.');
   };
 
   const enablePush = async () => {
@@ -62,8 +55,8 @@ export const ProfilePage: React.FC = () => {
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-5">
       <h2 className="text-xl font-bold">Personal Information</h2>
       <div className="flex items-center gap-4">
-        <div className="w-20 h-20 rounded-full bg-amber-100 overflow-hidden flex items-center justify-center text-2xl font-bold text-amber-800">{user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : user.fullName[0]}</div>
-        <label className="px-4 py-2 rounded-xl bg-amber-50 text-amber-900 font-semibold cursor-pointer">Change profile picture<input className="hidden" type="file" accept="image/*" onChange={(e) => uploadAvatar(e.target.files?.[0])} /></label>
+        <UserAvatar userId={user.id} name={user.fullName} className="h-20 w-20 border border-amber-200 text-4xl shadow-sm" />
+        <div><p className="font-semibold text-slate-800">Your Chore Manager avatar</p><p className="text-sm text-slate-500">This friendly avatar is tied to your account and stays the same after app updates.</p></div>
       </div>
       <form className="grid sm:grid-cols-2 gap-4" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.updateProfile({ fullName, username })); }}>
         <label className="text-sm font-semibold">Full name<input className="block w-full mt-1 rounded-xl border border-slate-200 p-3" value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
