@@ -2,7 +2,7 @@
 
 This document tracks current progress, milestones, architecture decisions, and configuration requirements for **Chore Manager**.
 
-Last updated: Phase 1 Kickoff
+Last updated: 2026-11-13
 
 ---
 
@@ -16,7 +16,7 @@ Last updated: Phase 1 Kickoff
 | **Phase 4** | Salary System & Age-Based Brackets | 🟢 **Completed** |
 | **Phase 5** | Work Tracking (NFC, QR Code Fallback & Remote Photo Proofs) | 🟢 **Completed** |
 | **Phase 6** | Piggy Bank Ledger, Financial Separation & Payment Periods | 🟢 **Completed** |
-| **Phase 7** | Shopping Requests, Notifications, Goals, Calendar & Achievements | 🟢 **Completed** |
+| **Phase 7** | Shopping Requests, Notifications, Goals, Calendar & Achievements | 🟡 **Partially implemented** (shopping, notifications, goals implemented; dashboard deadline calendar added; recurring rules, achievement unlocks, and disputes are not wired to user-facing flows) |
 | **Phase 8** | Seed Data, Production Polish, PWA Optimization & Testing | 🟢 **Completed** (Neon DB Connected & Verified) |
 
 ---
@@ -43,8 +43,14 @@ Last updated: Phase 1 Kickoff
 
 ---
 
-## 4. Known Issues & Bugs
-*None reported.*
+## 4. Known Issues & Follow-up Work
+- Bosses can edit an open or assigned chore before work sessions begin. The server locks edits once a work session exists or a chore is closed.
+- Workers can withdraw a pending chore request; its assignment remains in the database as cancelled for history.
+- Boss and worker dashboards now include a month-filtered list of chore completion deadlines. This is an agenda view, not a full calendar grid.
+- `RecurringChoreRule`, `Achievement`/`UserAchievement`, and `Dispute` database models exist, but recurring chore generation, achievement unlocking, and dispute review do not yet have complete user-facing workflows.
+- The client production build reports a large JavaScript bundle (about 671 kB before gzip). Consider splitting dashboard/scanner code into lazy-loaded chunks.
+- The offline experience caches app assets only. Chore, account, and finance data require a network connection.
+- No automated test suite is currently configured. Server and client TypeScript/production builds are the available checks.
 
 ---
 

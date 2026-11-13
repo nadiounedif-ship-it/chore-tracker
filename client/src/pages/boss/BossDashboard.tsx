@@ -32,10 +32,11 @@ export const BossDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping' | 'chat'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'calendar' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping' | 'chat'>('overview');
 
   // Modals
   const [showCreateChore, setShowCreateChore] = useState(false);
+  const [editingChore, setEditingChore] = useState<any>(null);
   const [showInviteWorker, setShowInviteWorker] = useState(false);
   const [showEditRates, setShowEditRates] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
@@ -48,7 +49,7 @@ export const BossDashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    if (dashboardTab && ['overview', 'chores', 'scanner', 'payouts', 'workers', 'rates', 'shopping', 'chat'].includes(dashboardTab)) {
+    if (dashboardTab && ['overview', 'chores', 'calendar', 'scanner', 'payouts', 'workers', 'rates', 'shopping', 'chat'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any);
       setDashboardTab(null);
     }
@@ -194,6 +195,7 @@ export const BossDashboard: React.FC = () => {
       alert(err.message || 'Failed to delete chore.');
     },
   });
+  const editChoreMutation = useMutation({ mutationFn: ({ id, data }: { id: string; data: any }) => api.chores.update(id, data), onSuccess: () => { setEditingChore(null); queryClient.invalidateQueries({ queryKey: ['myTeamChores'] }); }, onError: (e: any) => alert(e.message || 'Could not update chore.') });
   const respondRequestMutation = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'APPROVE' | 'REJECT' }) => api.chores.respondChoreRequest(id, action),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['myTeamChores'] }),
@@ -308,6 +310,7 @@ export const BossDashboard: React.FC = () => {
           <section aria-label="Boss dashboard shortcuts" className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {[
               { id: 'chores', icon: '🧹', title: 'Chores & requests', detail: `${pendingRequests.length} new requests · ${choresData?.length || 0} chores` },
+              { id: 'calendar', icon: '🗓️', title: 'Deadline calendar', detail: `${(choresData || []).filter((c) => c.deadline).length} scheduled chores` },
               { id: 'scanner', icon: '📱', title: 'Clock in / out', detail: 'Scan a worker badge' },
               { id: 'payouts', icon: '🐷', title: 'Piggy bank & payouts', detail: `${formatCurrency(totalUnpaid)} waiting to be paid` },
               { id: 'workers', icon: '👨‍👩‍👧‍👦', title: 'Workers & invitations', detail: `${activeMembersCount} active team members` },
@@ -373,6 +376,7 @@ export const BossDashboard: React.FC = () => {
       )}
 
       {activeTab === 'chat' && <TeamChat teamId={teamData?.id} />}
+      {activeTab === 'calendar' && <ChoreCalendar items={(choresData || []).filter((c) => c.deadline).map((c) => ({ id: c.id, title: c.title, date: c.deadline!, status: c.status, detail: c.assignments?.map((a) => a.worker?.fullName).filter(Boolean).join(', ') }))} />}
 
       {/* TAB: CHORES & APPROVALS */}
       {activeTab === 'chores' && (
@@ -432,13 +436,14 @@ export const BossDashboard: React.FC = () => {
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <span className="text-[11px] text-slate-500">{chore.assignments?.some((a) => a.sessions?.length) || chore.status === 'COMPLETED' || chore.status === 'IN_PROGRESS' ? 'Work has started or finished. Its history must be preserved.' : chore.assignments?.length ? 'A worker has requested or been assigned this chore.' : ''}</span>
+                  <button type="button" disabled={!!chore.assignments?.some((a) => a.sessions?.length) || ['COMPLETED', 'IN_PROGRESS', 'CANCELLED'].includes(chore.status)} onClick={() => setEditingChore(chore)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-sky-800 bg-sky-50 hover:bg-sky-100 disabled:opacity-40">Edit</button>
                   <button type="button" disabled={!!chore.assignments?.length || !['OPEN', 'CANCELLED'].includes(chore.status) || deleteChoreMutation.isPending} onClick={() => { if (window.confirm(`Delete “${chore.title}”? This cannot be undone.`)) deleteChoreMutation.mutate(chore.id); }} className="rounded-lg px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed">Delete chore</button>
                 </div>
               </div>
             ))}
           </div>
 
-          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['APPROVED', 'ACTIVE'].includes(a.status)).map((a) => a.worker?.fullName).filter(Boolean).join(', ') || 'Assigned'}</div>{chore.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Due {new Date(chore.deadline).toLocaleString()}</p>}</article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
+          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><div className="flex items-start justify-between gap-2"><div><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['APPROVED', 'ACTIVE'].includes(a.status)).map((a) => a.worker?.fullName).filter(Boolean).join(', ') || 'Assigned'}</div>{chore.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Due {new Date(chore.deadline).toLocaleString()}</p>}</div>{!chore.assignments?.some((a) => a.sessions?.length) && <button onClick={() => setEditingChore(chore)} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-sky-800">Edit</button>}</div></article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
           <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
             {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
@@ -703,6 +708,7 @@ export const BossDashboard: React.FC = () => {
           }}
         />
       )}
+      {editingChore && <EditChoreModal chore={editingChore} onClose={() => setEditingChore(null)} onSave={(data) => editChoreMutation.mutate({ id: editingChore.id, data })} saving={editChoreMutation.isPending} />}
 
       {/* Invite Worker Modal */}
       {showInviteWorker && (
@@ -716,6 +722,27 @@ export const BossDashboard: React.FC = () => {
       )}
     </div>
   );
+};
+
+const EditChoreModal: React.FC<{ chore: any; onClose: () => void; onSave: (data: any) => void; saving: boolean }> = ({ chore, onClose, onSave, saving }) => {
+  const toLocalInput = (value?: string | null) => { if (!value) return ''; const d = new Date(value); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  const [title, setTitle] = useState(chore.title || '');
+  const [description, setDescription] = useState(chore.description || '');
+  const [fixedAmount, setFixedAmount] = useState(String(chore.fixedAmount || '0'));
+  const [deadline, setDeadline] = useState(toLocalInput(chore.deadline));
+  const [requestDeadline, setRequestDeadline] = useState(toLocalInput(chore.requestDeadline));
+  const [error, setError] = useState('');
+  const submit = (e: React.FormEvent) => { e.preventDefault(); if (!title.trim() || !description.trim()) { setError('Add a title and description.'); return; } onSave({ title: title.trim(), description: description.trim(), fixedAmount: Number(fixedAmount), deadline: deadline ? new Date(deadline).toISOString() : null, requestDeadline: requestDeadline ? new Date(requestDeadline).toISOString() : null }); };
+  return <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4"><form onSubmit={submit} className="w-full max-w-lg rounded-3xl bg-white p-6 space-y-4 max-h-[90vh] overflow-auto"><h2 className="text-xl font-extrabold">Edit chore</h2>{error && <p className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}<label className="block text-sm font-bold">Title<input className="mt-1 w-full rounded-xl border p-3 font-normal" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} required /></label><label className="block text-sm font-bold">Description<textarea className="mt-1 w-full rounded-xl border p-3 font-normal" value={description} onChange={(e) => setDescription(e.target.value)} required /></label>{chore.paymentType === 'FIXED' && <label className="block text-sm font-bold">Reward (€)<input type="number" min="0" step="0.01" className="mt-1 w-full rounded-xl border p-3 font-normal" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} /></label>}<label className="block text-sm font-bold">Completion deadline (optional)<input type="datetime-local" className="mt-1 w-full rounded-xl border p-3 font-normal" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>{!chore.assignments?.some((a: any) => ['APPROVED', 'ACTIVE', 'COMPLETED'].includes(a.status)) && <label className="block text-sm font-bold">Request cutoff (optional)<input type="datetime-local" className="mt-1 w-full rounded-xl border p-3 font-normal" value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} /></label>}<p className="text-xs text-slate-500">Changes are blocked after work has started to protect the work and payment history.</p><div className="flex justify-end gap-2"><button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-bold">Cancel</button><button disabled={saving} className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button></div></form></div>;
+};
+
+const ChoreCalendar: React.FC<{ items: { id: string; title: string; date: string; status: string; detail?: string }[] }> = ({ items }) => {
+  const [monthOffset, setMonthOffset] = useState(0);
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setMonth(monthStart.getMonth() + monthOffset);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  const monthItems = items.filter((item) => { const d = new Date(item.date); return d.getFullYear() === monthStart.getFullYear() && d.getMonth() === monthStart.getMonth(); }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const grouped = new Map<string, typeof monthItems>(); monthItems.forEach((item) => { const key = new Date(item.date).toLocaleDateString(); grouped.set(key, [...(grouped.get(key) || []), item]); });
+  return <section className="rounded-3xl border border-orange-100 bg-white p-5 sm:p-7 space-y-4"><div className="flex items-center justify-between"><div><h2 className="text-xl font-extrabold">Chore deadlines</h2><p className="text-sm text-slate-500">A simple month-by-month view of scheduled work.</p></div><div className="flex gap-2"><button onClick={() => setMonthOffset((m) => m - 1)} className="rounded-xl border px-3 py-2" aria-label="Previous month">←</button><strong className="min-w-32 self-center text-center">{monthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong><button onClick={() => setMonthOffset((m) => m + 1)} className="rounded-xl border px-3 py-2" aria-label="Next month">→</button></div></div>{monthItems.length ? <div className="space-y-3">{Array.from(grouped.entries()).map(([day, entries]) => <div key={day} className="rounded-2xl bg-amber-50/70 p-4"><h3 className="font-extrabold text-amber-950">{day}</h3><div className="mt-2 space-y-2">{entries.map((item) => <article key={item.id} className="rounded-xl bg-white p-3"><div className="flex flex-wrap justify-between gap-2"><strong>{item.title}</strong><span className="text-xs font-bold text-rose-700">{new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div><p className="text-xs text-slate-500">{item.status}{item.detail ? ` · ${item.detail}` : ''}</p></article>)}</div></div>)}</div> : <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">No chore deadlines this month.</p>}</section>;
 };
 
 // Sub-Modal: Create Chore

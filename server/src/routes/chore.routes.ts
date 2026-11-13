@@ -44,6 +44,56 @@ const RespondChoreRequestSchema = z.object({
   action: z.enum(['APPROVE', 'REJECT']),
 });
 
+const UpdateChoreSchema = CreateChoreSchema.omit({ assignedWorkerId: true }).partial();
+
+// Boss edits preserve assignments and history. Once any work session exists,
+// the original chore details are locked so completed work cannot be rewritten.
+choreRouter.put('/:choreId', authenticate, requireRole('BOSS'), async (req: Request, res: Response) => {
+  try {
+    const data = UpdateChoreSchema.parse(req.body);
+    const chore = await prisma.chore.findUnique({ where: { id: req.params.choreId as string }, include: { team: true, assignments: { include: { sessions: true } } } });
+    if (!chore || chore.team.bossId !== req.user!.id) return res.status(404).json({ error: 'Chore not found.' });
+    if (['COMPLETED', 'CANCELLED'].includes(chore.status) || chore.assignments.some((a) => a.sessions.length > 0)) {
+      return res.status(409).json({ error: 'This chore has work history or is closed. Its details can no longer be changed.' });
+    }
+    if (data.deadline && new Date(data.deadline) < new Date()) return res.status(400).json({ error: 'The completion deadline must be in the future.' });
+    if (data.requestDeadline && new Date(data.requestDeadline) < new Date()) return res.status(400).json({ error: 'The request deadline must be in the future.' });
+    const directAssigned = chore.assignments.some((assignment) => assignment.directAssigned && ['APPROVED', 'ACTIVE'].includes(assignment.status));
+    if (!directAssigned && (data.requestDeadline === null || (data.requestDeadline === undefined && !chore.requestDeadline))) {
+      return res.status(400).json({ error: 'A chore open to team requests needs a request cutoff.' });
+    }
+    const updated = await prisma.chore.update({ where: { id: chore.id }, data: {
+      ...(data.title !== undefined && { title: data.title }), ...(data.description !== undefined && { description: data.description }),
+      ...(data.instructions !== undefined && { instructions: data.instructions }), ...(data.category !== undefined && { category: data.category }),
+      ...(data.priority !== undefined && { priority: data.priority }), ...(data.paymentType !== undefined && { paymentType: data.paymentType }),
+      ...(data.fixedAmount !== undefined && { fixedAmount: new Prisma.Decimal(data.fixedAmount.toFixed(2)) }),
+      ...(data.estimatedDurationMinutes !== undefined && { estimatedDurationMinutes: data.estimatedDurationMinutes }),
+      ...(data.weekNumber !== undefined && { weekNumber: data.weekNumber }), ...(data.year !== undefined && { year: data.year }),
+      ...(data.deadline !== undefined && { deadline: data.deadline ? new Date(data.deadline) : null }),
+      ...(data.requestDeadline !== undefined && { requestDeadline: data.requestDeadline ? new Date(data.requestDeadline) : null }),
+      ...(data.requiresBeforeAfterPictures !== undefined && { requiresBeforeAfterPictures: data.requiresBeforeAfterPictures }),
+      ...(data.requiresNfc !== undefined && { requiresNfc: data.requiresNfc }), ...(data.allowMultipleWorkers !== undefined && { allowMultipleWorkers: data.allowMultipleWorkers }),
+      ...(data.pictures !== undefined && { pictures: data.pictures }),
+    } });
+    return res.json({ message: 'Chore updated.', chore: updated });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
+    return res.status(500).json({ error: 'Failed to update chore.' });
+  }
+});
+
+// Workers may withdraw only a still-pending request; the assignment record is
+// retained as CANCELLED for an auditable history.
+choreRouter.post('/requests/:assignmentId/cancel', authenticate, requireRole('WORKER'), async (req: Request, res: Response) => {
+  try {
+    const assignment = await prisma.choreAssignment.findUnique({ where: { id: req.params.assignmentId as string }, include: { chore: { include: { team: true } } } });
+    if (!assignment || assignment.workerId !== req.user!.id) return res.status(404).json({ error: 'Request not found.' });
+    if (assignment.status !== 'REQUESTED') return res.status(409).json({ error: 'Only a pending request can be withdrawn.' });
+    await prisma.choreAssignment.update({ where: { id: assignment.id }, data: { status: 'CANCELLED' } });
+    return res.json({ message: 'Chore request withdrawn.' });
+  } catch { return res.status(500).json({ error: 'Could not withdraw this request.' }); }
+});
+
 /**
  * POST /api/chores (Boss creates a chore)
  */
