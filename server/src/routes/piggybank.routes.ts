@@ -4,7 +4,7 @@ import { prisma } from '../prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
 import { getNextPaymentDate, getPeriodStart } from '../utils/paymentSchedule.js';
-import { sendNotificationEmail } from '../utils/notifications.js';
+import { sendNotificationPush } from '../utils/notifications.js';
 
 export const piggybankRouter = Router();
 
@@ -329,7 +329,7 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
 
       return { payment, transaction, notification };
     });
-    await sendNotificationEmail(result.notification.id);
+    await sendNotificationPush(result.notification.id);
 
     return res.status(201).json({
       message: `Recorded payment of ${payAmount.toString().replace('.', ',')} € to ${worker.fullName}.`,

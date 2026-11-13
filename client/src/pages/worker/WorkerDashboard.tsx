@@ -52,6 +52,7 @@ export const WorkerDashboard: React.FC = () => {
   const { data: piggyData } = useQuery({
     queryKey: ['piggyOverview', activeTeamId],
     queryFn: () => api.piggybank.getOverview(activeTeamId === 'ALL' ? undefined : activeTeamId),
+    refetchInterval: 30000,
   });
 
   const { data: availableChores } = useQuery({
@@ -422,7 +423,7 @@ export const WorkerDashboard: React.FC = () => {
       {activeTab === 'mychores' && (
         <div className="space-y-6">
           <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3"><h2 className="text-lg font-extrabold text-amber-950">Requested chores (pending request) <span className="text-sm">{requestedAssignments.length}</span></h2>{requestedAssignments.length ? requestedAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-amber-800">Waiting for team approval</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div>) : <p className="text-sm text-slate-600">No requests waiting for approval.</p>}</section>
-          <section className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-3"><h2 className="text-lg font-extrabold text-sky-950">Chores in progress <span className="text-sm">{inProgressAssignments.length}</span></h2>{inProgressAssignments.length ? inProgressAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-sky-800">In progress</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p></div>) : <p className="text-sm text-slate-600">No chores in progress right now.</p>}</section>
+          <section className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 space-y-3"><h2 className="text-lg font-extrabold text-sky-950">Chores in progress <span className="text-sm">{inProgressAssignments.length}</span></h2>{inProgressAssignments.length ? inProgressAssignments.map((a) => <div key={a.id} id={`reference-chore-${a.choreId}`} className="rounded-xl bg-white p-3"><strong>{a.chore?.title}</strong><span className="ml-2 text-xs text-sky-800">In progress</span><p className="text-xs text-slate-500">{a.chore?.team?.name}</p>{a.chore?.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Complete by {new Date(a.chore.deadline).toLocaleString()} · €0.50 late fee if unfinished</p>}</div>) : <p className="text-sm text-slate-600">No chores in progress right now.</p>}</section>
           <div><h2 className="text-xl font-bold text-slate-900">My chores</h2><p className="text-xs text-slate-500">Approved chores ready for you to start</p></div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -439,6 +440,7 @@ export const WorkerDashboard: React.FC = () => {
                   </div>
                   <h3 className="font-bold text-slate-900 text-base">{a.chore?.title}</h3>
                   <p className="text-xs text-slate-500 mt-1">{a.chore?.description}</p>
+                  {a.chore?.deadline && <p className="mt-2 text-xs font-semibold text-rose-700">Complete by {new Date(a.chore.deadline).toLocaleString()} · €0.50 late fee if unfinished</p>}
                   {a.status === 'APPROVED' && a.approvedAt && <p className="mt-2"><DeadlineTimer date={new Date(new Date(a.approvedAt).getTime() + 48 * 60 * 60 * 1000).toISOString()} prefix="Start within" /></p>}
                   {a.chore?.requiresBeforeAfterPictures && a.status === 'APPROVED' && <label className="block mt-3 text-xs font-semibold text-slate-600">Before photo (required)<input type="file" accept="image/*" capture="environment" className="block mt-1 text-xs" onChange={(e) => uploadProof(e.target.files?.[0], setBeforeProofUrl)} />{beforeProofUrl && <span className="text-emerald-700">Photo ready ✓</span>}</label>}
                 </div>

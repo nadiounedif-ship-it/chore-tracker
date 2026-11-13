@@ -13,7 +13,7 @@ import { savingsRouter } from './routes/savings.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { uploadRouter } from './routes/upload.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
-import { expireUnstartedApprovals } from './utils/choreExpiry.js';
+import { expireUnstartedApprovals, processOverdueChoreDeadlines } from './utils/choreExpiry.js';
 
 const app = express();
 
@@ -73,6 +73,9 @@ app.listen(config.port, () => {
 });
 
 // Release approved chores that were not started within 48 hours.
-setInterval(() => { void expireUnstartedApprovals().catch((error) => console.error('[Chore expiry] Background check failed.', error)); }, 60_000).unref();
+setInterval(() => {
+  void expireUnstartedApprovals().catch((error) => console.error('[Chore expiry] Background check failed.', error));
+  void processOverdueChoreDeadlines().catch((error) => console.error('[Chore deadline] Background check failed.', error));
+}, 60_000).unref();
 
 export default app;

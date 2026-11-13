@@ -297,15 +297,16 @@ enum AssignmentStatus {
 }
 
 model ChoreAssignment {
-  id          String           @id @default(uuid())
-  choreId     String
-  chore       Chore            @relation(fields: [choreId], references: [id], onDelete: Cascade)
-  workerId    String
-  worker      User             @relation(fields: [workerId], references: [id], onDelete: Cascade)
-  status      AssignmentStatus @default(REQUESTED)
-  requestedAt DateTime         @default(now())
-  approvedAt  DateTime?
-  completedAt DateTime?
+  id                       String           @id @default(uuid())
+  choreId                  String
+  chore                    Chore            @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  workerId                 String
+  worker                   User             @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  status                   AssignmentStatus @default(REQUESTED)
+  requestedAt              DateTime         @default(now())
+  approvedAt               DateTime?
+  completedAt              DateTime?
+  deadlinePenaltyAppliedAt DateTime?
 
   sessions ChoreSession[]
 
@@ -571,6 +572,8 @@ enum NotificationType {
   SHOPPING_REQUEST
   DISPUTE_EVENT
   REMINDER
+  TEAM_CHAT
+  DEADLINE_PENALTY
 }
 
 model Notification {

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { createNotification } from '../utils/notifications.js';
-import { sendNotificationEmail } from '../utils/notifications.js';
+import { sendNotificationPush } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { calculateAge } from '../utils/age.js';
 import { calculateHourlyEarnings, roundUpEuro } from '../utils/currency.js';
@@ -505,7 +505,7 @@ sessionRouter.post('/clock-out', authenticate, requireRole('BOSS'), async (req: 
 
       return { updatedSession, transaction, notification };
     });
-    await sendNotificationEmail(result.notification.id);
+    await sendNotificationPush(result.notification.id);
 
     return res.json({
       message: `${badge.worker.fullName} clocked out. ${finalAmount.toString().replace('.', ',')} € credited!`,
@@ -760,7 +760,7 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: 'Session approved and earnings credited to worker piggy bank.' });
     } else {
@@ -792,7 +792,7 @@ sessionRouter.post('/:sessionId/review', authenticate, requireRole('BOSS'), asyn
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: 'Chore returned to worker with feedback.' });
     }

@@ -2,10 +2,10 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { createNotification } from '../utils/notifications.js';
-import { sendNotificationEmail } from '../utils/notifications.js';
+import { sendNotificationPush } from '../utils/notifications.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
-import { expireUnstartedApprovals } from '../utils/choreExpiry.js';
+import { expireUnstartedApprovals, processOverdueChoreDeadlines } from '../utils/choreExpiry.js';
 
 export const choreRouter = Router();
 
@@ -31,8 +31,8 @@ const CreateChoreSchema = z.object({
   estimatedDurationMinutes: z.number().int().positive().optional().nullable(),
   weekNumber: z.number().int().min(1).max(53),
   year: z.number().int().min(2020),
-  deadline: z.string().optional().nullable(),
-  requestDeadline: z.string().datetime(),
+  deadline: z.string().datetime().optional().nullable(),
+  requestDeadline: z.string().datetime().optional().nullable(),
   requiresBeforeAfterPictures: z.boolean().default(false),
   requiresNfc: z.boolean().default(false),
   allowMultipleWorkers: z.boolean().default(false),
@@ -50,6 +50,7 @@ const RespondChoreRequestSchema = z.object({
 choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, res: Response) => {
   try {
     const data = CreateChoreSchema.parse(req.body);
+    if (!data.assignedWorkerId && !data.requestDeadline) return res.status(400).json({ error: 'Set a request cutoff for chores that are open to the team.' });
 
     const team = await prisma.team.findUnique({
       where: { bossId: req.user!.id },
@@ -136,6 +137,7 @@ choreRouter.post('/', authenticate, requireRole('BOSS'), async (req: Request, re
 choreRouter.get('/my-team', authenticate, requireRole('BOSS'), async (req: Request, res: Response) => {
   try {
     await expireUnstartedApprovals();
+    await processOverdueChoreDeadlines();
     const team = await prisma.team.findUnique({
       where: { bossId: req.user!.id },
     });
@@ -182,6 +184,7 @@ choreRouter.get('/my-team', authenticate, requireRole('BOSS'), async (req: Reque
 choreRouter.get('/available', authenticate, requireRole('WORKER'), async (req: Request, res: Response) => {
   try {
     await expireUnstartedApprovals();
+    await processOverdueChoreDeadlines();
     const { teamId } = req.query;
 
     // Get all teams the worker belongs to
@@ -352,7 +355,7 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: 'Chore assigned to worker successfully.' });
     } else {
@@ -370,7 +373,7 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
           },
         });
       });
-      await sendNotificationEmail(notification.id);
+      await sendNotificationPush(notification.id);
 
       return res.json({ message: 'Chore request declined.' });
     }
@@ -388,6 +391,7 @@ choreRouter.post('/requests/:assignmentId/respond', authenticate, requireRole('B
 choreRouter.get('/my-assignments', authenticate, requireRole('WORKER'), async (req: Request, res: Response) => {
   try {
     await expireUnstartedApprovals();
+    await processOverdueChoreDeadlines();
     const { status, teamId } = req.query;
 
     const assignments = await prisma.choreAssignment.findMany({
