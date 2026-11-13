@@ -65,8 +65,8 @@ export const Header: React.FC = () => {
   };
 
   const dashboardLinks = role === 'BOSS'
-    ? [{ id: 'overview', label: 'Home' }, { id: 'chores', label: 'Chores & requests' }, { id: 'scanner', label: 'Clock in / out' }, { id: 'payouts', label: 'Piggy bank & payouts' }, { id: 'workers', label: 'Workers & invitations' }, { id: 'rates', label: 'Salary brackets' }, { id: 'shopping', label: 'To Buy list' }]
-    : [{ id: 'home', label: 'Home' }, { id: 'piggybank', label: 'Piggy bank' }, { id: 'available', label: 'Available chores' }, { id: 'mychores', label: 'My chores' }, { id: 'qr', label: 'NFC & QR badge' }, { id: 'goals', label: 'Savings goals' }, { id: 'shopping', label: 'Request supplies' }];
+    ? [{ id: 'overview', label: 'Home' }, { id: 'chores', label: 'Chores & requests' }, { id: 'chat', label: 'Team chat' }, { id: 'scanner', label: 'Clock in / out' }, { id: 'payouts', label: 'Piggy bank & payouts' }, { id: 'workers', label: 'Workers & invitations' }, { id: 'rates', label: 'Salary brackets' }, { id: 'shopping', label: 'To Buy list' }]
+    : [{ id: 'home', label: 'Home' }, { id: 'piggybank', label: 'Piggy bank' }, { id: 'available', label: 'Available chores' }, { id: 'mychores', label: 'My chores' }, { id: 'chat', label: 'Team chat' }, { id: 'qr', label: 'NFC & QR badge' }, { id: 'goals', label: 'Savings goals' }, { id: 'shopping', label: 'Request supplies' }];
 
   const navigateDashboard = (tab: string) => {
     setActivePage('dashboard');

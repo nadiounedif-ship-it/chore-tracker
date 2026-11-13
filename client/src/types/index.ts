@@ -78,6 +78,7 @@ export interface Chore {
   weekNumber: number;
   year: number;
   deadline?: string | null;
+  requestDeadline?: string | null;
   requiresBeforeAfterPictures: boolean;
   requiresNfc: boolean;
   allowMultipleWorkers: boolean;

@@ -20,10 +20,13 @@ export const ProfilePage: React.FC = () => {
   const [emailPassword, setEmailPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [pushState, setPushState] = useState('');
+  const [pushEnabled, setPushEnabled] = useState(false);
   const { data: team } = useQuery({ queryKey: ['myTeam'], queryFn: api.teams.getMyTeam, enabled: role === 'BOSS' });
   const preferences = user?.emailNotificationPreferences || { enabled: false, categories: [] };
 
   useEffect(() => { setFullName(user?.fullName || ''); setUsername(user?.username || ''); }, [user]);
+  useEffect(() => { if ('serviceWorker' in navigator) void navigator.serviceWorker.ready.then(async (registration) => setPushEnabled(!!(await registration.pushManager.getSubscription()))).catch(() => {}); }, []);
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('verify-email');
     if (!token) return;
@@ -51,6 +54,27 @@ export const ProfilePage: React.FC = () => {
       ? preferences.categories.filter((item) => item !== category)
       : [...preferences.categories, category];
     run(() => api.auth.updateNotificationPreferences({ enabled: preferences.enabled, categories }), 'Email preferences saved.');
+  };
+
+  const enablePush = async () => {
+    setPushState('');
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Phone notifications are not supported by this browser. On iPhone, add Chore Manager to your Home Screen first.');
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+      const registration = await navigator.serviceWorker.ready;
+      const { publicKey } = await api.notifications.pushKey();
+      if (!publicKey) throw new Error('Phone notifications are not configured on the app server yet.');
+      const keyBytes = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
+      await api.notifications.savePushSubscription(subscription.toJSON());
+      setPushEnabled(true);
+      setPushState('Phone notifications are enabled on this device.');
+    } catch (err: any) { setPushState(err.message || 'Could not enable phone notifications.'); }
+  };
+  const disablePush = async () => {
+    try { const registration = await navigator.serviceWorker.ready; const subscription = await registration.pushManager.getSubscription(); if (subscription) { await api.notifications.removePushSubscription(subscription.endpoint); await subscription.unsubscribe(); } setPushEnabled(false); setPushState('Phone notifications are disabled on this device.'); }
+    catch (err: any) { setPushState(err.message || 'Could not disable phone notifications.'); }
   };
 
   if (!user) return null;
@@ -83,6 +107,7 @@ export const ProfilePage: React.FC = () => {
 
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">
       <h2 className="text-xl font-bold">Account Security</h2>
+      <div className="border-t pt-4 space-y-2"><h3 className="font-bold">Phone notifications</h3><p className="text-sm text-slate-600">Get important Chore Manager updates on this device.</p><button type="button" onClick={pushEnabled ? disablePush : enablePush} className="rounded-xl bg-emerald-600 text-white px-4 py-2 font-bold">{pushEnabled ? 'Disable phone notifications' : 'Enable phone notifications'}</button>{pushState && <p className="text-sm text-slate-600">{pushState}</p>}</div>
       <form className="grid sm:grid-cols-3 gap-3" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.updatePassword(currentPassword, newPassword), 'Password updated.'); setCurrentPassword(''); setNewPassword(''); }}>
         <input type="password" required placeholder="Current password" className="rounded-xl border p-3" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         <input type="password" required minLength={8} placeholder="New password (8+ characters)" className="rounded-xl border p-3" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />

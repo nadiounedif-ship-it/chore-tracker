@@ -23,13 +23,15 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Html5Qrcode } from 'html5-qrcode';
+import { TeamChat } from '../../components/TeamChat';
+import { DeadlineTimer } from '../../components/DeadlineTimer';
 
 export const BossDashboard: React.FC = () => {
   const { user, dashboardTab, setDashboardTab } = useAuth();
   const queryClient = useQueryClient();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping' | 'chat'>('overview');
 
   // Modals
   const [showCreateChore, setShowCreateChore] = useState(false);
@@ -45,7 +47,7 @@ export const BossDashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    if (dashboardTab && ['overview', 'chores', 'scanner', 'payouts', 'workers', 'rates', 'shopping'].includes(dashboardTab)) {
+    if (dashboardTab && ['overview', 'chores', 'scanner', 'payouts', 'workers', 'rates', 'shopping', 'chat'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any);
       setDashboardTab(null);
     }
@@ -208,6 +210,9 @@ export const BossDashboard: React.FC = () => {
   const activeMembersCount = teamData?.members?.filter((m) => m.status === 'ACTIVE').length || 0;
   const pendingRequests = choresData?.flatMap((chore) => (chore.assignments || []).filter((a) => a.status === 'REQUESTED').map((a) => ({ ...a, choreTitle: chore.title, choreId: chore.id }))) || [];
   const completedAssignments = (choresData?.flatMap((chore) => (chore.assignments || []).filter((assignment) => assignment.status === 'COMPLETED').map((assignment) => ({ id: assignment.id, choreId: chore.id, choreTitle: chore.title, workerName: assignment.worker?.fullName || 'Worker', completedAt: assignment.completedAt }))) || []).sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+  const availableBossChores = (choresData || []).filter((chore) => ['OPEN', 'ASSIGNED'].includes(chore.status) && !['ASSIGNED', 'ACTIVE'].includes(chore.assignments?.[0]?.status || '') && (!chore.requestDeadline || new Date(chore.requestDeadline) > new Date()));
+  const inProgressBossChores = (choresData || []).filter((chore) => ['IN_PROGRESS', 'ASSIGNED'].includes(chore.status) && chore.assignments?.some((a) => ['APPROVED', 'ACTIVE'].includes(a.status)));
+  const unattributedBossChores = (choresData || []).filter((chore) => chore.status !== 'COMPLETED' && !!chore.requestDeadline && new Date(chore.requestDeadline) <= new Date() && !(chore.assignments?.length));
   const awaitingReviewSessions = choresData?.flatMap((chore) => (chore.assignments || []).flatMap((a) => (a.sessions || []).filter((s: any) => s.status === 'SUBMITTED').map((s: any) => ({ ...s, choreTitle: chore.title, choreId: chore.id, workerName: a.worker?.fullName || 'Worker' })))) || [];
   const totalUnpaid = financeData?.totalUnpaid || '0.00';
 
@@ -365,6 +370,8 @@ export const BossDashboard: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'chat' && <TeamChat teamId={teamData?.id} />}
+
       {/* TAB: CHORES & APPROVALS */}
       {activeTab === 'chores' && (
         <div className="space-y-6">
@@ -382,13 +389,10 @@ export const BossDashboard: React.FC = () => {
             </button>
           </div>
 
-          <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
-            {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
-          </section>
+          <h3 className="text-lg font-extrabold text-slate-900">Available chores <span className="text-sm text-slate-500">({availableBossChores.length})</span></h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {choresData?.map((chore) => (
+            {availableBossChores.map((chore) => (
               <div key={chore.id} id={`reference-chore-${chore.id}`} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between overflow-hidden">
                 <div>
                   {/* Chore Picture if available */}
@@ -413,6 +417,7 @@ export const BossDashboard: React.FC = () => {
                   </div>
                   <h3 className="font-bold text-slate-900 text-base">{chore.title}</h3>
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2">{chore.description}</p>
+                  {chore.requestDeadline && <p className="mt-2"><DeadlineTimer date={chore.requestDeadline} /></p>}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -430,6 +435,13 @@ export const BossDashboard: React.FC = () => {
               </div>
             ))}
           </div>
+
+          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['APPROVED', 'ACTIVE'].includes(a.status)).map((a) => a.worker?.fullName).filter(Boolean).join(', ') || 'Assigned'}</div></article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
+          <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
+            {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
+          </section>
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2"><h3 className="text-lg font-extrabold text-slate-900">Non attributed chores <span className="text-sm text-slate-500">({unattributedBossChores.length})</span></h3>{unattributedBossChores.length ? unattributedBossChores.map((chore) => <div key={chore.id} className="rounded-xl bg-white p-3"><strong>{chore.title}</strong><p className="text-xs text-slate-500">Request window closed {new Date(chore.requestDeadline!).toLocaleString()}</p></div>) : <p className="text-sm text-slate-500">No chores missed their request window.</p>}</section>
 
           {awaitingReviewSessions.length > 0 && <section className="bg-white rounded-2xl border border-sky-100 p-5 space-y-4"><h3 className="font-bold text-lg">Finished chores to review ({awaitingReviewSessions.length})</h3>{awaitingReviewSessions.map((session: any) => <article key={session.id} id={`reference-session-${session.id}`} className="border-t pt-4 space-y-3"><div><div className="font-bold">{session.workerName} · {session.choreTitle}</div><div className="text-xs text-slate-500">Work time: {Math.floor((session.durationSeconds || 0) / 60)} minutes · submitted {new Date(session.clockOutAt || session.clockInAt).toLocaleString()}</div></div><div className="flex flex-wrap gap-3">{session.beforePictureUrl && <a href={session.beforePictureUrl} target="_blank" rel="noreferrer"><img src={session.beforePictureUrl} alt="Before" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">Before</span></a>}{session.afterPictureUrl && <a href={session.afterPictureUrl} target="_blank" rel="noreferrer"><img src={session.afterPictureUrl} alt="After" className="w-32 h-24 object-cover rounded-xl" /><span className="text-xs">After</span></a>}</div><div className="flex gap-2"><button disabled={reviewSessionMutation.isPending} onClick={() => reviewSessionMutation.mutate({ id: session.id, approved: true })} className="rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-bold">Approve and credit</button><button disabled={reviewSessionMutation.isPending} onClick={() => { const reason = window.prompt('What should the worker fix before resubmitting?'); if (reason?.trim()) reviewSessionMutation.mutate({ id: session.id, approved: false, reason: reason.trim() }); }} className="rounded-xl bg-rose-50 text-rose-800 px-4 py-2 text-sm font-bold">Ask for changes</button></div></article>)}</section>}
 
@@ -710,6 +722,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }>
   const [category, setCategory] = useState('CLEANING');
   const [paymentType, setPaymentType] = useState<'FIXED' | 'HOURLY'>('FIXED');
   const [fixedAmount, setFixedAmount] = useState('5.00');
+  const [requestDeadline, setRequestDeadline] = useState(() => { const d = new Date(Date.now() + 7 * 86400000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); });
   const [requiresBeforeAfterPictures, setRequiresBeforeAfterPictures] = useState(false);
   const [pictures, setPictures] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -748,6 +761,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }>
         fixedAmount: paymentType === 'FIXED' ? parseFloat(fixedAmount) : 0,
         weekNumber: 46,
         year: 2026,
+        requestDeadline: new Date(requestDeadline).toISOString(),
         requiresBeforeAfterPictures,
         requiresNfc: true,
         pictures,
@@ -791,6 +805,8 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void }>
               className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm"
             />
           </div>
+
+          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Last time to request this chore</label><input type="datetime-local" required min={new Date().toISOString().slice(0, 16)} value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If nobody requests it by then, it moves to Non attributed chores and workers can no longer see it.</p></div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
