@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Bell, LogOut, CheckCheck, Users, Shield, Sparkles, Menu, X } from 'lucide-react';
+import { Bell, LogOut, CheckCheck, Trash2, Users, Shield, Sparkles, Menu, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { UserAvatar } from './UserAvatar';
 
@@ -40,6 +40,11 @@ export const Header: React.FC = () => {
   const markReadMutation = useMutation({
     mutationFn: (id: string) => api.notifications.markRead(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+  const clearNotificationsMutation = useMutation({
+    mutationFn: () => api.notifications.clearAll(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: (error: any) => window.alert(error.message || 'Could not clear notifications.'),
   });
   const openNotification = (notification: any) => {
     if (!notification.isRead) markReadMutation.mutate(notification.id);
@@ -159,14 +164,18 @@ export const Header: React.FC = () => {
             <div className="absolute right-0 top-12 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200 p-4 z-50">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <h4 className="font-bold text-slate-900 text-sm">Notifications</h4>
+                <div className="flex items-center gap-3">
                 {notifData?.unreadCount ? (
                   <button
+                    type="button"
                     onClick={() => markAllReadMutation.mutate()}
                     className="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1 font-medium"
                   >
                     <CheckCheck className="w-3.5 h-3.5" /> Mark all read
                   </button>
                 ) : null}
+                {!!notifData?.notifications.length && <button type="button" disabled={clearNotificationsMutation.isPending} onClick={() => { if (window.confirm('Delete all notifications from your notification panel? This cannot be undone.')) clearNotificationsMutation.mutate(); }} className="text-xs font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-50"><span className="inline-flex items-center gap-1"><Trash2 className="h-3.5 w-3.5" /> Clear all</span></button>}
+                </div>
               </div>
 
               <div className="max-h-72 overflow-y-auto mt-2 space-y-2">

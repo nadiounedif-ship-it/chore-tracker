@@ -265,7 +265,7 @@ choreRouter.get('/available', authenticate, requireRole('WORKER'), async (req: R
         AND: [{ OR: [
           { allowMultipleWorkers: true },
           { assignments: { none: { status: { in: ['APPROVED', 'ACTIVE', 'COMPLETED'] } } } },
-        ] }],
+        ] }, { assignments: { none: { workerId: req.user!.id, status: { in: ['REQUESTED', 'APPROVED', 'ACTIVE', 'COMPLETED'] } } } }],
       },
       include: {
         team: {

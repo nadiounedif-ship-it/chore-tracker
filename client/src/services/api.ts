@@ -213,6 +213,7 @@ export const api = {
   // Notifications
   notifications: {
     list: () => request<{ notifications: any[]; unreadCount: number }>('/notifications'),
+    clearAll: () => request<{ message: string; deletedCount: number }>('/notifications', { method: 'DELETE' }),
     pushKey: () => request<{ publicKey: string }>('/notifications/push-key'),
     savePushSubscription: (subscription: PushSubscriptionJSON) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
     removePushSubscription: (endpoint: string) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),

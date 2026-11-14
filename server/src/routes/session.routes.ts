@@ -289,7 +289,7 @@ sessionRouter.post('/clock-in', authenticate, requireRole('BOSS'), async (req: R
         error: `Chore is not approved for ${worker.fullName}. Please approve assignment first.` 
       });
     }
-    if (!assignment.directAssigned && assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
+    if (!chore.deadline && assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
       await prisma.$transaction(async (tx) => {
         await tx.choreAssignment.updateMany({ where: { id: assignment.id, status: 'APPROVED' }, data: { status: 'CANCELLED' } });
         const remaining = await tx.choreAssignment.count({ where: { choreId: chore.id, status: { in: ['APPROVED', 'ACTIVE'] } } });
@@ -543,7 +543,7 @@ sessionRouter.post('/remote/start', authenticate, requireRole('WORKER'), async (
     if (assignment.status !== 'APPROVED') {
       return res.status(400).json({ error: 'Chore must be approved by Boss before starting.' });
     }
-    if (!assignment.directAssigned && assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
+    if (!assignment.chore.deadline && assignment.approvedAt && assignment.approvedAt.getTime() <= Date.now() - 48 * 60 * 60 * 1000) {
       await prisma.$transaction(async (tx) => {
         await tx.choreAssignment.updateMany({ where: { id: assignment.id, status: 'APPROVED' }, data: { status: 'CANCELLED' } });
         const remaining = await tx.choreAssignment.count({ where: { choreId: assignment.choreId, status: { in: ['APPROVED', 'ACTIVE'] } } });

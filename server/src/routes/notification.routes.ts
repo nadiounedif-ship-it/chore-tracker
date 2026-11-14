@@ -44,6 +44,16 @@ notificationRouter.get('/', authenticate, async (req: Request, res: Response) =>
   }
 });
 
+/** Delete only the signed-in user's in-app notification history. */
+notificationRouter.delete('/', authenticate, async (req: Request, res: Response) => {
+  try {
+    const result = await prisma.notification.deleteMany({ where: { userId: req.user!.id } });
+    return res.json({ message: 'Notifications cleared.', deletedCount: result.count });
+  } catch {
+    return res.status(500).json({ error: 'Could not clear notifications.' });
+  }
+});
+
 /**
  * PUT /api/notifications/:id/read
  */
