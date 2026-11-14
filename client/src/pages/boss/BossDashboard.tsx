@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { formatCurrency } from '../../lib/utils';
+import { calculateAge, formatCurrency } from '../../lib/utils';
 import {
   Users,
   CheckCircle2,
@@ -33,7 +33,7 @@ export const BossDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'calendar' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping' | 'chat'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'chores' | 'calendar' | 'sessions' | 'scanner' | 'payouts' | 'workers' | 'rates' | 'shopping' | 'chat'>('overview');
 
   // Modals
   const [showCreateChore, setShowCreateChore] = useState(false);
@@ -50,7 +50,7 @@ export const BossDashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    if (dashboardTab && ['overview', 'chores', 'calendar', 'scanner', 'payouts', 'workers', 'rates', 'shopping', 'chat'].includes(dashboardTab)) {
+    if (dashboardTab && ['overview', 'chores', 'calendar', 'sessions', 'scanner', 'payouts', 'workers', 'rates', 'shopping', 'chat'].includes(dashboardTab)) {
       setActiveTab(dashboardTab as any);
       setDashboardTab(null);
     }
@@ -220,6 +220,16 @@ export const BossDashboard: React.FC = () => {
   const unattributedBossChores = (choresData || []).filter((chore) => chore.status !== 'COMPLETED' && !!chore.requestDeadline && new Date(chore.requestDeadline) <= new Date() && !(chore.assignments?.length));
   const awaitingReviewSessions = choresData?.flatMap((chore) => (chore.assignments || []).flatMap((a) => (a.sessions || []).filter((s: any) => s.status === 'SUBMITTED').map((s: any) => ({ ...s, choreTitle: chore.title, choreId: chore.id, workerName: a.worker?.fullName || 'Worker' })))) || [];
   const totalUnpaid = financeData?.totalUnpaid || '0.00';
+  const priceForChore = (chore: any) => {
+    if (chore.paymentType === 'FIXED') return `Reward: ${formatCurrency(chore.fixedAmount)}`;
+    const assignedWorkers = chore.assignments?.filter((assignment: any) => ['REQUESTED', 'APPROVED', 'ACTIVE'].includes(assignment.status)) || [];
+    const rates = assignedWorkers.map((assignment: any) => {
+      const age = assignment.worker?.dateOfBirth ? calculateAge(assignment.worker.dateOfBirth) : null;
+      const bracket = age === null ? null : teamData?.salaryBrackets?.find((rate: any) => age >= rate.minAge && age <= rate.maxAge);
+      return `${assignment.worker?.fullName || 'Worker'}: ${bracket ? `${formatCurrency(bracket.hourlyRate)}/hour` : 'rate not set'}`;
+    });
+    return rates.length ? rates.join(' · ') : 'Hourly · based on worker age';
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -267,25 +277,25 @@ export const BossDashboard: React.FC = () => {
         <div className="space-y-8">
           {/* Metrics Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+            <button type="button" onClick={() => setActiveTab('workers')} aria-label="View active workers" className="w-full text-left bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-purple-300 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-600">
               <div className="flex justify-between items-center text-slate-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Active Workers</span>
                 <Users className="w-5 h-5 text-purple-600" />
               </div>
               <div className="text-2xl font-black text-slate-900">{activeMembersCount}</div>
               <p className="text-xs text-slate-400 mt-1">In your family team</p>
-            </div>
+            </button>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+            <button type="button" onClick={() => setActiveTab('payouts')} aria-label="View unpaid earnings and payouts" className="w-full text-left bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
               <div className="flex justify-between items-center text-slate-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Unpaid Earnings</span>
                 <Euro className="w-5 h-5 text-emerald-600" />
               </div>
               <div className="text-2xl font-black text-slate-900">{formatCurrency(totalUnpaid)}</div>
               <p className="text-xs text-slate-400 mt-1">Owed to workers</p>
-            </div>
+            </button>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+            <button type="button" onClick={() => setActiveTab('sessions')} aria-label="View workers clocked in now" className="w-full text-left bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-sky-300 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600">
               <div className="flex justify-between items-center text-slate-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Clocked In Now</span>
                 <Clock className="w-5 h-5 text-blue-600" />
@@ -294,9 +304,9 @@ export const BossDashboard: React.FC = () => {
                 {Array.isArray(activeSessions) ? activeSessions.length : 0}
               </div>
               <p className="text-xs text-slate-400 mt-1">Currently working</p>
-            </div>
+            </button>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+            <button type="button" onClick={() => setActiveTab('chores')} aria-label="View pending chore reviews" className="w-full text-left bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-amber-300 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-600">
               <div className="flex justify-between items-center text-slate-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Pending Reviews</span>
                 <CheckCircle2 className="w-5 h-5 text-amber-600" />
@@ -305,7 +315,7 @@ export const BossDashboard: React.FC = () => {
                 {pendingRequests.length + awaitingReviewSessions.length}
               </div>
               <p className="text-xs text-slate-400 mt-1">Requests & proofs</p>
-            </div>
+            </button>
           </div>
 
           <section aria-label="Boss dashboard shortcuts" className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -377,7 +387,8 @@ export const BossDashboard: React.FC = () => {
       )}
 
       {activeTab === 'chat' && <TeamChat teamId={teamData?.id} />}
-      {activeTab === 'calendar' && <ChoreCalendar items={(choresData || []).filter((c) => c.deadline).map((c) => ({ id: c.id, title: c.title, date: c.deadline!, status: c.status, detail: c.assignments?.map((a) => a.worker?.fullName).filter(Boolean).join(', ') }))} />}
+      {activeTab === 'sessions' && <section className="rounded-3xl border border-sky-100 bg-white p-5 sm:p-7 space-y-4"><div><h2 className="text-xl font-extrabold">Workers clocked in now</h2><p className="text-sm text-slate-500">Live work sessions for your team.</p></div>{activeSessions?.length ? <div className="divide-y divide-slate-100">{activeSessions.map((session: any) => <article key={session.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><p className="font-bold text-slate-900">{session.worker?.fullName || 'Worker'}</p><p className="text-sm text-slate-600">{session.assignment?.chore?.title || 'Chore'}</p></div><span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">Started {new Date(session.clockInAt).toLocaleString()}</span></article>)}</div> : <p className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">No workers are clocked in right now.</p>}</section>}
+      {activeTab === 'calendar' && <ChoreCalendar items={(choresData || []).filter((c) => c.deadline).map((c) => ({ id: c.id, title: c.title, date: c.deadline!, status: c.status, detail: c.assignments?.filter((assignment) => assignment.status === 'COMPLETED').map((assignment) => assignment.worker?.fullName).filter(Boolean).join(', ') }))} />}
 
       {/* TAB: CHORES & APPROVALS */}
       {activeTab === 'chores' && (
@@ -444,7 +455,7 @@ export const BossDashboard: React.FC = () => {
             ))}
           </div>
 
-          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><div className="flex items-start justify-between gap-2"><div><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['REQUESTED', 'APPROVED', 'ACTIVE'].includes(a.status)).map((a) => `${a.worker?.fullName || 'Worker'}${a.status === 'REQUESTED' ? ' · request pending' : ''}`).filter(Boolean).join(', ') || 'Assigned'}</div>{chore.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Due {new Date(chore.deadline).toLocaleString()} · late fee if unfinished</p>}{chore.requiresBeforeAfterPictures && <p className="mt-2 inline-flex rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-sky-900">📷 Before and after photos required</p>}</div>{!chore.assignments?.some((a) => a.sessions?.length) && <button onClick={() => setEditingChore(chore)} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-sky-800">Edit</button>}</div></article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
+          <section className="space-y-3"><h3 className="text-lg font-extrabold text-slate-900">Chores in progress <span className="text-sm text-slate-500">({inProgressBossChores.length})</span></h3>{inProgressBossChores.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{inProgressBossChores.map((chore) => <article key={chore.id} className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4"><div className="flex items-start justify-between gap-2"><div><h4 className="font-bold">{chore.title}</h4><div className="mt-1 text-sm text-slate-600">{chore.assignments?.filter((a) => ['REQUESTED', 'APPROVED', 'ACTIVE'].includes(a.status)).map((a) => `${a.worker?.fullName || 'Worker'}${a.status === 'REQUESTED' ? ' · request pending' : ''}`).filter(Boolean).join(', ') || 'Assigned'}</div><p className="mt-2 inline-flex rounded-lg bg-white px-2.5 py-1 text-xs font-extrabold text-emerald-800">{priceForChore(chore)}</p>{chore.deadline && <p className="mt-1 text-xs font-semibold text-rose-700">Due {new Date(chore.deadline).toLocaleString()} · late fee if unfinished</p>}{chore.requiresBeforeAfterPictures && <p className="mt-2 inline-flex rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-sky-900">📷 Before and after photos required</p>}</div>{!chore.assignments?.some((a) => a.sessions?.length) && <button onClick={() => setEditingChore(chore)} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-sky-800">Edit</button>}</div></article>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No chores in progress.</p>}</section>
           <section className="rounded-2xl sm:rounded-3xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-extrabold text-emerald-950">Completed chores</h3><p className="text-xs text-emerald-800">Finished work and the team member who completed it.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{completedAssignments.length}</span></div>
             {completedAssignments.length ? <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{completedAssignments.map((assignment) => <article key={assignment.id} id={`reference-completed-assignment-${assignment.id}`} className="min-w-0 rounded-2xl border border-emerald-100 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold text-slate-900 break-words">{assignment.choreTitle}</h4><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Completed</span></div><p className="mt-2 text-sm text-slate-700">Completed by <strong>{assignment.workerName}</strong></p>{assignment.completedAt && <p className="mt-1 text-xs text-slate-500">{new Date(assignment.completedAt).toLocaleDateString()}</p>}</article>)}</div> : <p className="rounded-xl bg-white/70 p-4 text-center text-sm text-slate-500">Completed chores will appear here.</p>}
