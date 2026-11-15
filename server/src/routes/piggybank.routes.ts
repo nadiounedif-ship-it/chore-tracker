@@ -12,7 +12,10 @@ const PayWorkerSchema = z.object({
   workerId: z.string().min(1),
   amount: z.number().positive(), // in Euros
   notes: z.string().optional(),
+  promptId: z.string().optional(),
 });
+
+const PaymentChoiceSchema = z.object({ action: z.enum(['REQUEST_PAYMENT', 'WAIT']) });
 
 const AdjustmentSchema = z.object({
   workerId: z.string().min(1),
@@ -229,6 +232,76 @@ piggybankRouter.get('/team', authenticate, requireRole('BOSS'), async (req: Requ
   }
 });
 
+/** Payment-period choices for the current worker or the boss's own team. */
+piggybankRouter.get('/payment-prompts', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user!.role === 'BOSS') {
+      const team = await prisma.team.findUnique({ where: { bossId: req.user!.id }, select: { id: true } });
+      if (!team) return res.status(404).json({ error: 'Team not found.' });
+      const prompts = await prisma.paymentPrompt.findMany({
+        where: { teamId: team.id, status: 'REQUESTED' },
+        include: { worker: { select: { id: true, fullName: true, username: true, avatarUrl: true } }, paymentPeriod: { select: { startDate: true, endDate: true, schedule: true } } },
+        orderBy: { respondedAt: 'asc' },
+      });
+      return res.json(prompts.map((prompt) => ({ ...prompt, amount: prompt.amount.toFixed(2) })));
+    }
+
+    const prompts = await prisma.paymentPrompt.findMany({
+      where: { workerId: req.user!.id, status: 'PENDING' },
+      include: { team: { select: { id: true, name: true, boss: { select: { fullName: true } } } }, paymentPeriod: { select: { startDate: true, endDate: true, schedule: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return res.json(prompts.map((prompt) => ({ ...prompt, amount: prompt.amount.toFixed(2) })));
+  } catch (error) {
+    console.error('Payment prompt list error:', error);
+    return res.status(500).json({ error: 'Could not load payment choices.' });
+  }
+});
+
+/** Workers choose whether to request payment or defer it to a future period. */
+piggybankRouter.post('/payment-prompts/:promptId/respond', authenticate, requireRole('WORKER'), async (req: Request, res: Response) => {
+  try {
+    const { action } = PaymentChoiceSchema.parse(req.body);
+    const promptId = req.params.promptId as string;
+    const prompt = await prisma.paymentPrompt.findUnique({ where: { id: promptId }, include: { team: { include: { boss: { select: { id: true, username: true } } } } } });
+    if (!prompt || prompt.workerId !== req.user!.id) return res.status(404).json({ error: 'Payment choice not found.' });
+    if (prompt.status !== 'PENDING') return res.status(409).json({ error: 'This payment choice has already been answered.' });
+
+    let requestedAmount = prompt.amount;
+    if (action === 'REQUEST_PAYMENT') {
+      const balance = await prisma.piggyBankTransaction.aggregate({ where: { workerId: req.user!.id, teamId: prompt.teamId }, _sum: { amount: true } });
+      requestedAmount = balance._sum.amount || new Prisma.Decimal(0);
+      if (!requestedAmount.gt(0)) return res.status(400).json({ error: 'There is no unpaid balance to request right now.' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const changed = await tx.paymentPrompt.updateMany({
+        where: { id: prompt.id, workerId: req.user!.id, status: 'PENDING' },
+        data: { status: action === 'REQUEST_PAYMENT' ? 'REQUESTED' : 'DEFERRED', amount: requestedAmount, respondedAt: new Date() },
+      });
+      if (!changed.count) return { changed: false as const, notification: null };
+      const notification = action === 'REQUEST_PAYMENT' ? await tx.notification.create({ data: {
+        userId: prompt.team.boss.id,
+        teamId: prompt.teamId,
+        type: 'PAYMENT_REQUESTED',
+        title: 'A worker requested payment',
+        message: `${req.user!.username} requested ${requestedAmount.toFixed(2).replace('.', ',')} € from the piggy bank. Please review and mark it paid when you have paid them.`,
+        linkUrl: '/boss/payouts',
+        referenceType: 'payment-prompt',
+        referenceId: prompt.id,
+      } }) : null;
+      return { changed: true as const, notification };
+    });
+    if (!result.changed) return res.status(409).json({ error: 'This payment choice has already been answered.' });
+    if (result.notification) await sendNotificationPush(result.notification.id);
+    return res.json({ message: action === 'REQUEST_PAYMENT' ? 'Payment requested. Your boss will record it after paying you.' : 'Saved. Your balance will stay in your piggy bank for a future period.' });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0]?.message });
+    console.error('Payment choice response error:', error);
+    return res.status(500).json({ error: 'Could not save your payment choice.' });
+  }
+});
+
 /**
  * POST /api/piggybank/pay (Boss records payout to worker)
  */
@@ -256,6 +329,10 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
     if (worker.role !== 'WORKER') return res.status(400).json({ error: 'Payments can only be made to worker accounts.' });
     const membership = await prisma.teamMember.findUnique({ where: { teamId_workerId: { teamId: team.id, workerId: worker.id } } });
     if (!membership) return res.status(403).json({ error: 'This worker has no history with your team.' });
+    const prompt = data.promptId ? await prisma.paymentPrompt.findUnique({ where: { id: data.promptId } }) : null;
+    if (data.promptId && (!prompt || prompt.teamId !== team.id || prompt.workerId !== worker.id || prompt.status !== 'REQUESTED')) {
+      return res.status(409).json({ error: 'This payment request is no longer waiting to be paid.' });
+    }
     const balance = await prisma.piggyBankTransaction.aggregate({ where: { workerId: worker.id, teamId: team.id }, _sum: { amount: true } });
     const unpaid = balance._sum.amount || new Prisma.Decimal(0);
     if (payAmount.gt(unpaid)) return res.status(400).json({ error: `Payment exceeds the team balance of ${unpaid.toFixed(2)} €.` });
@@ -314,6 +391,11 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
         },
       });
 
+      if (prompt) {
+        const resolved = await tx.paymentPrompt.updateMany({ where: { id: prompt.id, status: 'REQUESTED' }, data: { status: 'PAID', paymentId: payment.id, respondedAt: now } });
+        if (!resolved.count) throw new Error('PAYMENT_PROMPT_ALREADY_RESOLVED');
+      }
+
       // 3. Notify worker
       const notification = await tx.notification.create({
         data: {
@@ -340,6 +422,7 @@ piggybankRouter.post('/pay', authenticate, requireRole('BOSS'), async (req: Requ
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0]?.message });
     }
+    if (error?.message === 'PAYMENT_PROMPT_ALREADY_RESOLVED') return res.status(409).json({ error: 'This payment request has already been recorded.' });
     console.error('Payment Error:', error);
     return res.status(500).json({ error: 'Failed to record payment.' });
   }

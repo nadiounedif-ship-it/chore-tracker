@@ -177,10 +177,12 @@ export const api = {
         workers: any[];
         recentTransactions: PiggyBankTransaction[];
       }>('/piggybank/team'),
-    payWorker: (workerId: string, amount: number, notes?: string) =>
+    paymentPrompts: () => request<any[]>('/piggybank/payment-prompts'),
+    respondPaymentPrompt: (id: string, action: 'REQUEST_PAYMENT' | 'WAIT') => request<{ message: string }>(`/piggybank/payment-prompts/${id}/respond`, { method: 'POST', body: JSON.stringify({ action }) }),
+    payWorker: (workerId: string, amount: number, notes?: string, promptId?: string) =>
       request<{ message: string; payment: any; transaction: any }>('/piggybank/pay', {
         method: 'POST',
-        body: JSON.stringify({ workerId, amount, notes }),
+        body: JSON.stringify({ workerId, amount, notes, promptId }),
       }),
   },
 
@@ -215,6 +217,8 @@ export const api = {
     list: () => request<{ notifications: any[]; unreadCount: number }>('/notifications'),
     clearAll: () => request<{ message: string; deletedCount: number }>('/notifications', { method: 'DELETE' }),
     pushKey: () => request<{ publicKey: string }>('/notifications/push-key'),
+    pushStatus: () => request<{ configured: boolean; subscriptionCount: number }>('/notifications/push-status'),
+    testPush: () => request<{ message: string }>('/notifications/test-push', { method: 'POST' }),
     savePushSubscription: (subscription: PushSubscriptionJSON) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'POST', body: JSON.stringify(subscription) }),
     removePushSubscription: (endpoint: string) => request<{ message: string }>('/notifications/push-subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) }),
     markRead: (id: string) => request<{ message: string }>(`/notifications/${id}/read`, { method: 'PUT' }),

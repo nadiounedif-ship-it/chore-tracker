@@ -7,6 +7,7 @@ import { BossDashboard } from './pages/boss/BossDashboard';
 import { WorkerDashboard } from './pages/worker/WorkerDashboard';
 import { ProfilePage } from './pages/ProfilePage';
 import { MyTeamsPage } from './pages/worker/MyTeamsPage';
+import { LanguageProvider } from './context/LanguageContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,9 +49,9 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
+      <LanguageProvider><AuthProvider>
         <AppContent />
-      </AuthProvider>
+      </AuthProvider></LanguageProvider>
     </QueryClientProvider>
   );
 }

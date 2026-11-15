@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Sparkles, Shield, User as UserIcon, Calendar, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export const AuthPage: React.FC = () => {
   const { login, registerBoss, registerWorker } = useAuth();
+  const { language, setLanguage } = useLanguage();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [role, setRole] = useState<'BOSS' | 'WORKER'>('WORKER');
 
@@ -62,6 +64,7 @@ export const AuthPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-100 via-slate-50 to-blue-50/40 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div data-language-switch className="absolute right-4 top-4"><label className="sr-only" htmlFor="auth-language">Language</label><select id="auth-language" value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'fr')} className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm font-bold"><option value="en">English</option><option value="fr">Français</option></select></div>
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         {/* Brand Icon */}
         <div className="flex justify-center">

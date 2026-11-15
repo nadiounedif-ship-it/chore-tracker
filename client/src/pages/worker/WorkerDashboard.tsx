@@ -55,6 +55,13 @@ export const WorkerDashboard: React.FC = () => {
     queryFn: () => api.piggybank.getOverview(activeTeamId === 'ALL' ? undefined : activeTeamId),
     refetchInterval: 30000,
   });
+  const { data: paymentPrompts } = useQuery({ queryKey: ['workerPaymentPrompts'], queryFn: () => api.piggybank.paymentPrompts(), enabled: activeTab === 'piggybank', refetchInterval: 15000 });
+  const [paymentChoiceMessage, setPaymentChoiceMessage] = useState('');
+  const paymentChoiceMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'REQUEST_PAYMENT' | 'WAIT' }) => api.piggybank.respondPaymentPrompt(id, action),
+    onSuccess: async (result) => { setPaymentChoiceMessage(result.message); await queryClient.invalidateQueries({ queryKey: ['workerPaymentPrompts'] }); await queryClient.invalidateQueries({ queryKey: ['notifications'] }); },
+    onError: (error: any) => setPaymentChoiceMessage(error.message || 'Could not save your choice.'),
+  });
 
   const { data: availableChores } = useQuery({
     queryKey: ['availableChores', activeTeamId],
@@ -298,6 +305,8 @@ export const WorkerDashboard: React.FC = () => {
       {/* TAB: PIGGY BANK & TEAM BREAKDOWN */}
       {activeTab === 'piggybank' && (
         <div className="space-y-8">
+          {!!paymentChoiceMessage && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{paymentChoiceMessage}</p>}
+          {!!paymentPrompts?.length && <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 sm:p-6 space-y-4"><div><h2 className="text-xl font-extrabold text-amber-950">Payment time 🎉</h2><p className="text-sm text-amber-900">Would you like your boss to pay you this period, or would you rather keep saving? Your balance only changes after your boss marks the payment as paid.</p></div>{paymentPrompts.map((prompt: any) => <article key={prompt.id} className="rounded-2xl bg-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p className="font-extrabold text-slate-900">{prompt.team?.name} · {formatCurrency(prompt.amount)}</p><p className="text-xs text-slate-500">Period ending {new Date(prompt.paymentPeriod.endDate).toLocaleDateString()} · Boss {prompt.team?.boss?.fullName}</p></div><div className="flex flex-wrap gap-2"><button disabled={paymentChoiceMutation.isPending} onClick={() => paymentChoiceMutation.mutate({ id: prompt.id, action: 'REQUEST_PAYMENT' })} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Request payment</button><button disabled={paymentChoiceMutation.isPending} onClick={() => paymentChoiceMutation.mutate({ id: prompt.id, action: 'WAIT' })} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">Wait until next period</button></div></article>)}</section>}
           <div>
             <h2 className="text-xl font-bold text-slate-900">Earnings Breakdown by Team</h2>
             <p className="text-xs text-slate-500">Each boss manages their team finances independently.</p>

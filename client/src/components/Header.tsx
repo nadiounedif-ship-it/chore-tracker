@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { Bell, LogOut, CheckCheck, Trash2, Users, Shield, Sparkles, Menu, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { UserAvatar } from './UserAvatar';
+import { useLanguage } from '../context/LanguageContext';
 
 export const Header: React.FC = () => {
   const { user, role, logout, activeTeamId, setActiveTeamId, activePage, setActivePage, setDashboardTab } = useAuth();
@@ -12,6 +13,7 @@ export const Header: React.FC = () => {
   const [online, setOnline] = useState(navigator.onLine);
   const [showNavigation, setShowNavigation] = useState(false);
   const queryClient = useQueryClient();
+  const { language, setLanguage } = useLanguage();
 
   useEffect(() => {
     const onInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event); };
@@ -217,6 +219,7 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Logout Button */}
+          <label data-language-switch className="sr-only" htmlFor="language-select">Language</label><select id="language-select" aria-label="Language" value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'fr')} className="rounded-lg border border-orange-200 bg-white px-2 py-2 text-xs font-bold text-slate-700"><option value="en">EN</option><option value="fr">FR</option></select>
           <button
             onClick={logout}
             className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"

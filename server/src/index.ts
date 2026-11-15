@@ -14,6 +14,7 @@ import { notificationRouter } from './routes/notification.routes.js';
 import { uploadRouter } from './routes/upload.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
 import { expireUnstartedApprovals, processOverdueChoreDeadlines } from './utils/choreExpiry.js';
+import { processPaymentPrompts } from './utils/paymentPrompts.js';
 
 const app = express();
 
@@ -72,10 +73,13 @@ app.listen(config.port, () => {
   console.log(`[Environment] Mode: ${config.nodeEnv}`);
 });
 
+void processPaymentPrompts().catch((error) => console.error('[Payment schedule] Startup check failed.', error));
+
 // Release approved chores that were not started within 48 hours.
 setInterval(() => {
   void expireUnstartedApprovals().catch((error) => console.error('[Chore expiry] Background check failed.', error));
   void processOverdueChoreDeadlines().catch((error) => console.error('[Chore deadline] Background check failed.', error));
+  void processPaymentPrompts().catch((error) => console.error('[Payment schedule] Background check failed.', error));
 }, 60_000).unref();
 
 export default app;

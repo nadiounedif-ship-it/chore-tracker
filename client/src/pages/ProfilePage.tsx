@@ -15,10 +15,13 @@ export const ProfilePage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [pushState, setPushState] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushStatus, setPushStatus] = useState<{ configured: boolean; subscriptionCount: number } | null>(null);
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInstalledApp = (navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches;
   const { data: team } = useQuery({ queryKey: ['myTeam'], queryFn: api.teams.getMyTeam, enabled: role === 'BOSS' });
 
   useEffect(() => { setFullName(user?.fullName || ''); setUsername(user?.username || ''); }, [user]);
-  useEffect(() => { if ('serviceWorker' in navigator) void navigator.serviceWorker.ready.then(async (registration) => setPushEnabled(!!(await registration.pushManager.getSubscription()))).catch(() => {}); }, []);
+  useEffect(() => { void api.notifications.pushStatus().then(setPushStatus).catch(() => {}); if ('serviceWorker' in navigator) void navigator.serviceWorker.ready.then(async (registration) => setPushEnabled(!!(await registration.pushManager.getSubscription()))).catch(() => {}); }, []);
 
   const run = async (action: () => Promise<any>, successText?: string) => {
     setError(''); setMessage('');
@@ -29,6 +32,7 @@ export const ProfilePage: React.FC = () => {
   const enablePush = async () => {
     setPushState('');
     try {
+      if (isIos && !isInstalledApp) throw new Error('On iPhone, open this website in Safari, tap Share, choose “Add to Home Screen”, then open Chore Manager from its new Home Screen icon before enabling notifications. iPhone web push requires iOS 16.4 or newer.');
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Phone notifications are not supported by this browser. On iPhone, add Chore Manager to your Home Screen first.');
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error('Notification permission was not granted.');
@@ -39,6 +43,7 @@ export const ProfilePage: React.FC = () => {
       const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
       await api.notifications.savePushSubscription(subscription.toJSON());
       setPushEnabled(true);
+      setPushStatus((status) => status ? { ...status, subscriptionCount: Math.max(1, status.subscriptionCount) } : status);
       setPushState('Phone notifications are enabled on this device.');
     } catch (err: any) { setPushState(err.message || 'Could not enable phone notifications.'); }
   };
@@ -46,6 +51,7 @@ export const ProfilePage: React.FC = () => {
     try { const registration = await navigator.serviceWorker.ready; const subscription = await registration.pushManager.getSubscription(); if (subscription) { await api.notifications.removePushSubscription(subscription.endpoint); await subscription.unsubscribe(); } setPushEnabled(false); setPushState('Phone notifications are disabled on this device.'); }
     catch (err: any) { setPushState(err.message || 'Could not disable phone notifications.'); }
   };
+  const testPush = async () => { try { const result = await api.notifications.testPush(); setPushState(result.message); } catch (err: any) { setPushState(err.message || 'The test notification could not be sent.'); } };
 
   if (!user) return null;
   return <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-5">
@@ -71,7 +77,7 @@ export const ProfilePage: React.FC = () => {
 
     <section className="bg-white rounded-2xl border border-orange-100 p-5 sm:p-7 space-y-4">
       <h2 className="text-xl font-bold">Account Security</h2>
-      <div className="border-t pt-4 space-y-2"><h3 className="font-bold">Phone notifications</h3><p className="text-sm text-slate-600">Get important Chore Manager updates on this device.</p><button type="button" onClick={pushEnabled ? disablePush : enablePush} className="rounded-xl bg-emerald-600 text-white px-4 py-2 font-bold">{pushEnabled ? 'Disable phone notifications' : 'Enable phone notifications'}</button>{pushState && <p className="text-sm text-slate-600">{pushState}</p>}</div>
+      <div className="border-t pt-4 space-y-2"><h3 className="font-bold">Phone notifications</h3><p className="text-sm text-slate-600">Get important Chore Manager updates on this device. {isIos && 'On iPhone, open the installed Home Screen app (iOS 16.4 or newer) to enable web notifications.'}</p>{pushStatus && !pushStatus.configured && <p className="text-sm text-amber-800">Phone notifications are not configured on the app server yet.</p>}<button type="button" onClick={pushEnabled ? disablePush : enablePush} className="rounded-xl bg-emerald-600 text-white px-4 py-2 font-bold">{pushEnabled ? 'Disable phone notifications' : 'Enable phone notifications'}</button>{pushEnabled && <button type="button" onClick={testPush} className="ml-2 rounded-xl bg-amber-100 text-amber-900 px-4 py-2 font-bold">Send a test notification</button>}{pushState && <p className="text-sm text-slate-600">{pushState}</p>}</div>
       <form className="grid sm:grid-cols-3 gap-3" onSubmit={(e) => { e.preventDefault(); run(() => api.auth.updatePassword(currentPassword, newPassword), 'Password updated.'); setCurrentPassword(''); setNewPassword(''); }}>
         <input type="password" required placeholder="Current password" className="rounded-xl border p-3" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         <input type="password" required minLength={8} placeholder="New password (8+ characters)" className="rounded-xl border p-3" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />

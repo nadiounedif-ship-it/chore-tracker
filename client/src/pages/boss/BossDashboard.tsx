@@ -73,6 +73,7 @@ export const BossDashboard: React.FC = () => {
     refetchInterval: 5000,
   });
   const { data: shoppingItems } = useQuery({ queryKey: ['bossShopping'], queryFn: () => api.shopping.list(), enabled: activeTab === 'shopping' });
+  const { data: paymentPrompts } = useQuery({ queryKey: ['bossPaymentPrompts'], queryFn: () => api.piggybank.paymentPrompts(), enabled: activeTab === 'payouts', refetchInterval: 15000 });
 
   // Scanner & Clock-in Form State
   const [scannedUid, setScannedUid] = useState('');
@@ -180,11 +181,13 @@ export const BossDashboard: React.FC = () => {
   });
 
   const payWorkerMutation = useMutation({
-    mutationFn: ({ workerId, amount }: { workerId: string; amount: number }) =>
-      api.piggybank.payWorker(workerId, amount),
+    mutationFn: ({ workerId, amount, promptId }: { workerId: string; amount: number; promptId?: string }) =>
+      api.piggybank.payWorker(workerId, amount, promptId ? 'Payment requested by worker' : undefined, promptId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teamFinances'] });
+      queryClient.invalidateQueries({ queryKey: ['bossPaymentPrompts'] });
     },
+    onError: (error: any) => alert(error.message || 'Could not record the payment.'),
   });
 
   const deleteChoreMutation = useMutation({
@@ -571,6 +574,8 @@ export const BossDashboard: React.FC = () => {
             </p>
           </div>
 
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 sm:p-6 space-y-3"><div><h3 className="text-lg font-extrabold text-amber-950">Workers requesting payment</h3><p className="text-sm text-amber-900">A request does not deduct money. Use “Mark as paid” only after you have paid the worker.</p></div>{paymentPrompts?.length ? paymentPrompts.map((prompt: any) => <article key={prompt.id} className="rounded-2xl bg-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p className="font-extrabold text-slate-900">{prompt.worker?.fullName} · {formatCurrency(prompt.amount)}</p><p className="text-xs text-slate-500">Requested for period ending {new Date(prompt.paymentPeriod.endDate).toLocaleDateString()}</p></div><button disabled={payWorkerMutation.isPending} onClick={() => payWorkerMutation.mutate({ workerId: prompt.workerId, amount: Number(prompt.amount), promptId: prompt.id })} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Mark as paid</button></article>) : <p className="rounded-xl bg-white/70 p-4 text-sm text-slate-600">No workers are waiting for a payment right now.</p>}</section>
+
           <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs">
             <h3 className="font-bold text-slate-900 text-base mb-4">Worker Balances in Your Team</h3>
             <div className="divide-y divide-slate-100">
@@ -765,6 +770,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void; w
   const [requestDeadline, setRequestDeadline] = useState(() => { const d = new Date(Date.now() + 7 * 86400000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); });
   const [assignedWorkerId, setAssignedWorkerId] = useState('');
   const [completionDeadline, setCompletionDeadline] = useState('');
+  const [hasCompletionDeadline, setHasCompletionDeadline] = useState(true);
   const localMinDateTime = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
   const [requiresBeforeAfterPictures, setRequiresBeforeAfterPictures] = useState(false);
   const [pictures, setPictures] = useState<string[]>([]);
@@ -805,7 +811,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void; w
         weekNumber: 46,
         year: 2026,
         requestDeadline: assignedWorkerId || !requestDeadline ? null : new Date(requestDeadline).toISOString(),
-        deadline: completionDeadline ? new Date(completionDeadline).toISOString() : null,
+        deadline: hasCompletionDeadline && completionDeadline ? new Date(completionDeadline).toISOString() : null,
         assignedWorkerId: assignedWorkerId || null,
         requiresBeforeAfterPictures,
         requiresNfc: true,
@@ -853,7 +859,7 @@ const CreateChoreModal: React.FC<{ onClose: () => void; onSuccess: () => void; w
 
           <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Assign to a team member (optional)</label><select value={assignedWorkerId} onChange={(e) => setAssignedWorkerId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm"><option value="">Leave open for team requests</option>{workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.fullName} (@{worker.username})</option>)}</select><p className="mt-1 text-xs text-slate-500">Direct assignments stay with the chosen worker; the optional completion deadline and late fee apply below.</p></div>
           {!assignedWorkerId && <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Last time to request this chore</label><input type="datetime-local" required min={localMinDateTime()} value={requestDeadline} onChange={(e) => setRequestDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If nobody requests it by then, it moves to Non attributed chores and workers can no longer see it.</p></div>}
-          <div><label className="block text-xs font-bold text-slate-700 uppercase mb-1">Completion deadline (optional)</label><input type="datetime-local" min={localMinDateTime()} value={completionDeadline} onChange={(e) => setCompletionDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">Leave blank for a flexible chore. If an assigned worker has not finished by this time, €0.50 is deducted once from their piggy bank.</p></div>
+          <div><label className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase mb-2"><input type="checkbox" checked={hasCompletionDeadline} onChange={(e) => setHasCompletionDeadline(e.target.checked)} /> Set a completion deadline</label>{hasCompletionDeadline ? <><input type="datetime-local" min={localMinDateTime()} value={completionDeadline} onChange={(e) => setCompletionDeadline(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm" /><p className="mt-1 text-xs text-slate-500">If the assigned worker has not finished by this date and time, €0.50 is deducted once from their piggy bank.</p></> : <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">No deadline: there is no late penalty. If no deadline is set, the worker must start within 48 hours.</p>}</div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>

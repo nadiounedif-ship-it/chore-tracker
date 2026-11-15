@@ -49,6 +49,7 @@ model User {
   shoppingRequests        ShoppingRequest[]
   transactions            PiggyBankTransaction[]
   paymentsReceived        Payment[]
+  paymentPrompts          PaymentPrompt[]
   savingsGoals            SavingsGoal[]
   achievements            UserAchievement[]
   disputes                Dispute[]
@@ -100,6 +101,7 @@ model Team {
   shoppingRequests ShoppingRequest[]
   paymentPeriods   PaymentPeriod[]
   payments         Payment[]
+  paymentPrompts   PaymentPrompt[]
   transactions     PiggyBankTransaction[]
   disputes         Dispute[]
   notifications    Notification[]
@@ -447,6 +449,7 @@ model PaymentPeriod {
   createdAt                 DateTime        @default(now())
 
   payments Payment[]
+  prompts  PaymentPrompt[]
 
   @@index([teamId, status])
 }
@@ -465,9 +468,38 @@ model Payment {
   notes           String?
 
   transactions PiggyBankTransaction[]
+  promptRequest PaymentPrompt?
 
   @@index([teamId, workerId])
   @@index([paymentPeriodId])
+}
+
+enum PaymentPromptStatus {
+  PENDING
+  REQUESTED
+  DEFERRED
+  PAID
+}
+
+model PaymentPrompt {
+  id              String             @id @default(uuid())
+  teamId          String
+  team            Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  workerId        String
+  worker          User               @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  paymentPeriodId String
+  paymentPeriod   PaymentPeriod      @relation(fields: [paymentPeriodId], references: [id], onDelete: Cascade)
+  status          PaymentPromptStatus @default(PENDING)
+  amount          Decimal            @default(0.00) @db.Decimal(10, 2)
+  respondedAt     DateTime?
+  paymentId       String?            @unique
+  payment         Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([paymentPeriodId, workerId])
+  @@index([teamId, status])
+  @@index([workerId, status])
 }
 
 // -----------------------------------------------------------------------------
@@ -575,6 +607,8 @@ enum NotificationType {
   REMINDER
   TEAM_CHAT
   DEADLINE_PENALTY
+  PAYMENT_PERIOD_DUE
+  PAYMENT_REQUESTED
 }
 
 model Notification {
