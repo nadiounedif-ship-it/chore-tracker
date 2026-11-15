@@ -62,6 +62,7 @@ export const Header: React.FC = () => {
         else if (url.includes('piggy')) setDashboardTab('payouts');
       } else if (url.includes('chat')) setDashboardTab('chat');
       else if (url.includes('piggy')) setDashboardTab('piggybank');
+      else if (url.includes('available')) setDashboardTab('available');
       else if (url.includes('chore')) setDashboardTab('mychores');
     }
     if (notification.teamId && role === 'WORKER') setActiveTeamId(notification.teamId);

@@ -17,14 +17,15 @@ if (config.vapidPublicKey && config.vapidPrivateKey) {
   }
 }
 
-export async function sendNotificationPush(notificationId: string) {
-  if (!pushReady) return { configured: false, subscriptionCount: 0, delivered: 0, failed: 0 };
+export async function sendNotificationPush(notificationId: string, endpoint?: string) {
+  if (!pushReady) return { configured: false, subscriptionCount: 0, delivered: 0, failed: 0, failures: [] as string[] };
   try {
     const notification = await prisma.notification.findUnique({ where: { id: notificationId } });
-    if (!notification) return { configured: true, subscriptionCount: 0, delivered: 0, failed: 0 };
-    const subscriptions = await prisma.pushSubscription.findMany({ where: { userId: notification.userId } });
+    if (!notification) return { configured: true, subscriptionCount: 0, delivered: 0, failed: 0, failures: [] as string[] };
+    const subscriptions = await prisma.pushSubscription.findMany({ where: { userId: notification.userId, ...(endpoint ? { endpoint } : {}) } });
     let delivered = 0;
     let failed = 0;
+    const failures: string[] = [];
     const results = await Promise.allSettled(subscriptions.map(async (sub) => {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify({ title: notification.title, body: notification.message, url: notification.linkUrl || '/', notificationId: notification.id }));
@@ -35,10 +36,17 @@ export async function sendNotificationPush(notificationId: string) {
     }));
     for (const result of results) {
       if (result.status === 'fulfilled') delivered++;
-      else { failed++; console.error('[Push] Delivery failed:', result.reason instanceof Error ? result.reason.message : 'unknown error'); }
+      else {
+        failed++;
+        const reason = result.reason;
+        const message = reason instanceof Error ? reason.message : 'Unknown push service error';
+        const status = typeof reason?.statusCode === 'number' ? `HTTP ${reason.statusCode}: ` : '';
+        failures.push(`${status}${message}`);
+        console.error('[Push] Delivery failed:', status + message);
+      }
     }
-    return { configured: true, subscriptionCount: subscriptions.length, delivered, failed };
-  } catch (error) { console.error('[Push] Delivery could not be prepared; in-app notification was saved.', error instanceof Error ? error.message : 'unknown error'); return { configured: pushReady, subscriptionCount: 0, delivered: 0, failed: 1 }; }
+    return { configured: true, subscriptionCount: subscriptions.length, delivered, failed, failures };
+  } catch (error) { console.error('[Push] Delivery could not be prepared; in-app notification was saved.', error instanceof Error ? error.message : 'unknown error'); return { configured: pushReady, subscriptionCount: 0, delivered: 0, failed: 1, failures: [error instanceof Error ? error.message : 'Unknown push error'] }; }
 }
 
 export const isPushConfigured = () => pushReady;

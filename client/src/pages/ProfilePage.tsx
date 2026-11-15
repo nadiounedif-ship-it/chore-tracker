@@ -39,8 +39,17 @@ export const ProfilePage: React.FC = () => {
       const registration = await navigator.serviceWorker.ready;
       const { publicKey } = await api.notifications.pushKey();
       if (!publicKey) throw new Error('Phone notifications are not configured on the app server yet.');
-      const keyBytes = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
-      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
+      const base64 = publicKey.replace(/-/g, '+').replace(/_/g, '/');
+      const keyBytes = Uint8Array.from(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')), c => c.charCodeAt(0));
+      let subscription = await registration.pushManager.getSubscription();
+      const existingKey = subscription?.options.applicationServerKey;
+      const keyMatches = !!existingKey && Array.from(new Uint8Array(existingKey)).join(',') === Array.from(keyBytes).join(',');
+      if (subscription && !keyMatches) {
+        await api.notifications.removePushSubscription(subscription.endpoint);
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
       await api.notifications.savePushSubscription(subscription.toJSON());
       setPushEnabled(true);
       setPushStatus((status) => status ? { ...status, subscriptionCount: Math.max(1, status.subscriptionCount) } : status);
@@ -51,7 +60,7 @@ export const ProfilePage: React.FC = () => {
     try { const registration = await navigator.serviceWorker.ready; const subscription = await registration.pushManager.getSubscription(); if (subscription) { await api.notifications.removePushSubscription(subscription.endpoint); await subscription.unsubscribe(); } setPushEnabled(false); setPushState('Phone notifications are disabled on this device.'); }
     catch (err: any) { setPushState(err.message || 'Could not disable phone notifications.'); }
   };
-  const testPush = async () => { try { const result = await api.notifications.testPush(); setPushState(result.message); } catch (err: any) { setPushState(err.message || 'The test notification could not be sent.'); } };
+  const testPush = async () => { try { const registration = await navigator.serviceWorker.ready; const subscription = await registration.pushManager.getSubscription(); if (!subscription) throw new Error('This phone is not subscribed. Turn notifications off and on again first.'); const result = await api.notifications.testPush(subscription.endpoint); setPushState(result.message); } catch (err: any) { setPushState(err.message || 'The test notification could not be sent.'); } };
 
   if (!user) return null;
   return <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-5">

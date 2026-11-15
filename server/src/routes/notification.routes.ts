@@ -15,12 +15,18 @@ notificationRouter.get('/push-status', authenticate, async (req, res) => {
 
 notificationRouter.post('/test-push', authenticate, async (req, res) => {
   if (!isPushConfigured()) return res.status(503).json({ error: 'Phone notifications are not configured on the app server yet.' });
-  const subscriptionCount = await prisma.pushSubscription.count({ where: { userId: req.user!.id } });
-  if (!subscriptionCount) return res.status(400).json({ error: 'This account has no saved phone notification subscription. Enable notifications on this device first.' });
+  const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : null;
+  if (!endpoint) return res.status(400).json({ error: 'This device did not provide a notification subscription. Enable notifications on this device first.' });
+  const subscription = await prisma.pushSubscription.findFirst({ where: { userId: req.user!.id, endpoint }, select: { id: true } });
+  if (!subscription) return res.status(400).json({ error: 'This phone is not linked to your account. Enable notifications again on this device.' });
   const notification = await prisma.notification.create({ data: { userId: req.user!.id, type: 'REMINDER', title: 'Chore Manager test notification', message: 'Phone notifications are connected on this device.', linkUrl: '/profile' } });
-  const result = await sendNotificationPush(notification.id);
-  if (!result.delivered) return res.status(502).json({ error: 'The server could not deliver the test notification. Check that this device allows notifications and try enabling them again.' });
-  return res.json({ message: 'Test notification sent. Check your phone notification center.' });
+  const result = await sendNotificationPush(notification.id, endpoint);
+  if (!result.delivered) {
+    const details = result.failures[0] || 'The push service did not accept the subscription.';
+    const keyProblem = /HTTP 401|HTTP 403/.test(details);
+    return res.status(502).json({ error: keyProblem ? `The push provider rejected the server credentials (${details}). Your phone subscription cannot fix this; the app server's VAPID keys need to be checked.` : `The push service rejected this phone's subscription (${details}). Disable and re-enable notifications on this device, then try again.` });
+  }
+  return res.json({ message: 'The push service accepted a test notification for this device. Check your iPhone notification settings and Notification Center.' });
 });
 
 notificationRouter.post('/push-subscriptions', authenticate, async (req, res) => {

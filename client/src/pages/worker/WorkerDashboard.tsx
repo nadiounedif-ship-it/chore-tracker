@@ -454,7 +454,7 @@ export const WorkerDashboard: React.FC = () => {
                   <h3 className="font-bold text-slate-900 text-base">{a.chore?.title}</h3>
                   <p className="text-xs text-slate-500 mt-1">{a.chore?.description}</p>
                   {a.chore?.deadline && <p className="mt-2 text-xs font-semibold text-rose-700">Complete by {new Date(a.chore.deadline).toLocaleString()} · €0.50 late fee if unfinished</p>}
-                  {a.status === 'APPROVED' && !a.chore?.deadline && a.approvedAt && <p className="mt-2"><DeadlineTimer date={new Date(new Date(a.approvedAt).getTime() + 48 * 60 * 60 * 1000).toISOString()} prefix="Start within" /></p>}
+                  {a.status === 'APPROVED' && !a.directAssigned && !a.chore?.deadline && a.approvedAt && <p className="mt-2"><DeadlineTimer date={new Date(new Date(a.approvedAt).getTime() + 48 * 60 * 60 * 1000).toISOString()} prefix="Start within" /></p>}
                   {a.chore?.requiresBeforeAfterPictures && a.status === 'APPROVED' && <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3"><p className="text-sm font-extrabold text-sky-950">📷 Before and after photos are required</p><p className="mt-1 text-xs text-sky-900">Upload a before photo before starting. You’ll upload an after photo when you submit the finished chore.</p><label className="mt-2 block text-xs font-bold text-slate-700">Before photo<input type="file" accept="image/*" capture="environment" className="block mt-1 text-xs" onChange={(e) => uploadProof(e.target.files?.[0], setBeforeProofUrl)} />{beforeProofUrl && <span className="text-emerald-700">Photo ready ✓</span>}</label></div>}
                 </div>
 

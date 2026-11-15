@@ -13,7 +13,7 @@ import { savingsRouter } from './routes/savings.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { uploadRouter } from './routes/upload.routes.js';
 import { chatRouter } from './routes/chat.routes.js';
-import { expireUnstartedApprovals, processOverdueChoreDeadlines } from './utils/choreExpiry.js';
+import { expireUnstartedApprovals, processOverdueChoreDeadlines, processRequestCutoffReminders, processCompletionDeadlineReminders, processApprovalStartReminders } from './utils/choreExpiry.js';
 import { processPaymentPrompts } from './utils/paymentPrompts.js';
 
 const app = express();
@@ -79,6 +79,9 @@ void processPaymentPrompts().catch((error) => console.error('[Payment schedule] 
 setInterval(() => {
   void expireUnstartedApprovals().catch((error) => console.error('[Chore expiry] Background check failed.', error));
   void processOverdueChoreDeadlines().catch((error) => console.error('[Chore deadline] Background check failed.', error));
+  void processRequestCutoffReminders().catch((error) => console.error('[Request cutoff reminders] Background check failed.', error));
+  void processCompletionDeadlineReminders().catch((error) => console.error('[Completion deadline reminders] Background check failed.', error));
+  void processApprovalStartReminders().catch((error) => console.error('[Approval start reminders] Background check failed.', error));
   void processPaymentPrompts().catch((error) => console.error('[Payment schedule] Background check failed.', error));
 }, 60_000).unref();
 
